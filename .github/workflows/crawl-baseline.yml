@@ -1,0 +1,62 @@
+name: Baseline Daily Crawl
+
+on:
+  schedule:
+    # Daily baseline crawl at 06:00 UTC
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      brand:
+        description: "Comma-separated brand slugs (leave blank for all verified pilot brands)"
+        required: false
+        default: ""
+      mode:
+        description: "Crawl mode"
+        required: false
+        default: "manual"
+        type: choice
+        options:
+          - baseline
+          - high-frequency
+          - manual
+      max_products:
+        description: "Max products per brand"
+        required: false
+        default: "100"
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run standalone TypeScript crawler
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CRAWLER_CONTACT_EMAIL: ${{ secrets.CRAWLER_CONTACT_EMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ADMIN_ALERT_EMAIL: ${{ secrets.ADMIN_ALERT_EMAIL }}
+          ALERT_FROM_EMAIL: ${{ secrets.ALERT_FROM_EMAIL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL_S3: ${{ secrets.AWS_ENDPOINT_URL_S3 }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          BRAND_ARG=""
+          if [ -n "${{ github.event.inputs.brand }}" ]; then
+            BRAND_ARG="--brand=${{ github.event.inputs.brand }}"
+          fi
+          MODE="${{ github.event.inputs.mode || 'baseline' }}"
+          MAX="${{ github.event.inputs.max_products || '100' }}"
+          npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE --max=$MAX

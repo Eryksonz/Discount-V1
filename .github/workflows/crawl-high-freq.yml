@@ -1,0 +1,37 @@
+name: High-Frequency Sale & Alert Crawl
+
+on:
+  schedule:
+    # Every 4 hours for active sale events and products with active user alerts
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+
+jobs:
+  high-freq-crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run high-frequency crawl
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          CRAWLER_CONTACT_EMAIL: ${{ secrets.CRAWLER_CONTACT_EMAIL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ADMIN_ALERT_EMAIL: ${{ secrets.ADMIN_ALERT_EMAIL }}
+          ALERT_FROM_EMAIL: ${{ secrets.ALERT_FROM_EMAIL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_ENDPOINT_URL_S3: ${{ secrets.AWS_ENDPOINT_URL_S3 }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+        run: npx tsx crawler/run.ts --mode=high-frequency --max=60

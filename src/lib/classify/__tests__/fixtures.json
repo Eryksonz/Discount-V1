@@ -1,0 +1,211 @@
+[
+  {
+    "title": "Perth Performance Quarter-Zip",
+    "breadcrumb": "Men > Pullovers & Sweaters",
+    "brandSlug": "peter-millar",
+    "colors": ["Gale Blue", "French Navy"],
+    "sizes": ["small", "M", "Large", "XL"],
+    "expectedCategory": "quarter-zips-pullovers",
+    "expectedSubcategory": "Quarter-Zip",
+    "expectedRuleId": "cat-qzip-quarter",
+    "expectedOccasionsContain": ["Office daily"]
+  },
+  {
+    "title": "Saltwater Half-Zip Pullover",
+    "breadcrumb": "Men > Sweaters",
+    "brandSlug": "vineyard-vines",
+    "colors": ["Heather Grey"],
+    "sizes": ["S", "M", "L"],
+    "expectedCategory": "quarter-zips-pullovers",
+    "expectedSubcategory": "Half-Zip",
+    "expectedRuleId": "cat-qzip-half",
+    "expectedOccasionsContain": ["Office daily"]
+  },
+  {
+    "title": "Crown Sport Featherweight Performance Polo",
+    "breadcrumb": "Men > Golf > Polos",
+    "brandSlug": "peter-millar",
+    "colors": ["Optic White", "Sky Blue"],
+    "sizes": ["S", "M", "L", "XL"],
+    "expectedCategory": "polos",
+    "expectedSubcategory": "Performance Polo",
+    "expectedRuleId": "cat-polo-perf",
+    "expectedOccasionsContain": ["Office daily", "Summer internship"]
+  },
+  {
+    "title": "Regent Fit Non-Iron Stretch Pinpoint Dress Shirt",
+    "breadcrumb": "Men > Dress Shirts",
+    "brandSlug": "brooks-brothers",
+    "colors": ["Crisp White", "Light Blue"],
+    "sizes": ["15.5 / 33", "16-34", "16.5 35"],
+    "expectedCategory": "dress-shirts-ocbds",
+    "expectedSubcategory": "Non-Iron Dress Shirt",
+    "expectedRuleId": "cat-shirt-noniron",
+    "expectedOccasionsContain": ["Interview", "Superday"]
+  },
+  {
+    "title": "Original Polo Oxford Cloth Button-Down Shirt",
+    "breadcrumb": "Men > Casual Shirts",
+    "brandSlug": "brooks-brothers",
+    "colors": ["University Blue"],
+    "sizes": ["M", "L"],
+    "expectedCategory": "dress-shirts-ocbds",
+    "expectedSubcategory": "OCBD",
+    "expectedRuleId": "cat-shirt-ocbd",
+    "expectedOccasionsContain": ["Office daily"]
+  },
+  {
+    "title": "Leeward No Tuck Dress Shirt",
+    "breadcrumb": "Men > Shirts",
+    "brandSlug": "mizzen-main",
+    "colors": ["Midnight Navy"],
+    "sizes": ["S", "M", "L"],
+    "expectedCategory": "dress-shirts-ocbds",
+    "expectedSubcategory": "Performance Dress Shirt",
+    "expectedRuleId": "cat-shirt-perf",
+    "expectedOccasionsContain": ["Office daily", "Interview"]
+  },
+  {
+    "title": "Commuter Pant Slim",
+    "breadcrumb": "Men > Bottoms > Pants",
+    "brandSlug": "rhone",
+    "colors": ["Dark Navy", "British Khaki"],
+    "sizes": ["30W x 30L", "32 / 30", "34x32"],
+    "expectedCategory": "performance-trousers",
+    "expectedSubcategory": "Commuter Pant",
+    "expectedRuleId": "cat-perf-commuter",
+    "expectedOccasionsContain": ["Office daily", "Summer internship"]
+  },
+  {
+    "title": "Stretch Washed Chino 2.0",
+    "breadcrumb": "Men > Pants > Chinos",
+    "brandSlug": "bonobos",
+    "colors": ["Stone", "British Khaki"],
+    "sizes": ["32x30", "33x32"],
+    "expectedCategory": "chinos-dress-pants",
+    "expectedSubcategory": "Chino",
+    "expectedRuleId": "cat-pant-chino",
+    "expectedOccasionsContain": ["Office daily"]
+  },
+  {
+    "title": "High-Rise Italian Wool Flannel Trouser",
+    "breadcrumb": "Men > Tailoring > Trousers",
+    "brandSlug": "spier-mackay",
+    "colors": ["Dark Charcoal"],
+    "sizes": ["32x30", "34x30"],
+    "expectedCategory": "chinos-dress-pants",
+    "expectedSubcategory": "Flannel Trouser",
+    "expectedRuleId": "cat-pant-flannel",
+    "expectedOccasionsContain": ["Interview", "Superday"]
+  },
+  {
+    "title": "Napoli Navy Super 110s Wool Suit",
+    "breadcrumb": "Men > Suits",
+    "brandSlug": "suitsupply",
+    "colors": ["True Navy"],
+    "sizes": ["38R", "40 r", "42L"],
+    "expectedCategory": "suits",
+    "expectedSubcategory": "Worsted Wool Suit",
+    "expectedRuleId": "cat-suit-worsted",
+    "expectedOccasionsContain": ["Interview", "Superday"]
+  },
+  {
+    "title": "Havana Navy Hopsack Sport Coat",
+    "breadcrumb": "Men > Jackets",
+    "brandSlug": "suitsupply",
+    "colors": ["French Navy"],
+    "sizes": ["38R", "40R"],
+    "expectedCategory": "blazers-sport-coats",
+    "expectedSubcategory": "Hopsack Sport Coat",
+    "expectedRuleId": "cat-blazer-hopsack",
+    "expectedOccasionsContain": ["Interview", "Networking event"]
+  },
+  {
+    "title": "Inlet Knit Blazer",
+    "breadcrumb": "Men > Blazers",
+    "brandSlug": "faherty",
+    "colors": ["Midnight"],
+    "sizes": ["M", "L"],
+    "expectedCategory": "blazers-sport-coats",
+    "expectedSubcategory": "Knit Blazer",
+    "expectedRuleId": "cat-blazer-knit",
+    "expectedOccasionsContain": ["Office daily", "Summer internship"]
+  },
+  {
+    "title": "Garza Grossa Grenadine Tie",
+    "breadcrumb": "Men > Accessories > Ties",
+    "brandSlug": "spier-mackay",
+    "colors": ["Oxblood"],
+    "sizes": ["One Size"],
+    "expectedCategory": "ties-pocket-squares",
+    "expectedSubcategory": "Grenadine Tie",
+    "expectedRuleId": "cat-tie-grenadine",
+    "expectedOccasionsContain": ["Interview", "Superday"]
+  },
+  {
+    "title": "Goodyear Welted Calfskin Penny Loafer",
+    "breadcrumb": "Men > Shoes",
+    "brandSlug": "charles-tyrwhitt",
+    "colors": ["Espresso", "Dark Brown"],
+    "sizes": ["9.5", "10 D", "11"],
+    "expectedCategory": "shoes-belts",
+    "expectedSubcategory": "Penny Loafer",
+    "expectedRuleId": "cat-shoe-loafer",
+    "expectedOccasionsContain": ["Interview", "Office daily"]
+  },
+  {
+    "title": "Goodyear Welted Cap-Toe Oxford",
+    "breadcrumb": "Men > Formal Shoes",
+    "brandSlug": "charles-tyrwhitt",
+    "colors": ["Jet"],
+    "sizes": ["10D", "10.5D"],
+    "expectedCategory": "shoes-belts",
+    "expectedSubcategory": "Oxford Dress Shoe",
+    "expectedRuleId": "cat-shoe-oxford",
+    "expectedOccasionsContain": ["Interview", "Superday"]
+  },
+  {
+    "title": "Hyperlight Weld Quilted Vest",
+    "breadcrumb": "Men > Outerwear > Vests",
+    "brandSlug": "peter-millar",
+    "colors": ["Hunter Green", "Navy"],
+    "sizes": ["M", "L", "XL"],
+    "expectedCategory": "outerwear",
+    "expectedSubcategory": "Quilted Vest",
+    "expectedRuleId": "cat-outerwear-vest-quilted",
+    "expectedOccasionsContain": ["Office daily"]
+  },
+  {
+    "title": "Italian Double-Faced Wool Chesterfield Overcoat",
+    "breadcrumb": "Men > Coats",
+    "brandSlug": "banana-republic",
+    "colors": ["Camel", "Charcoal"],
+    "sizes": ["S", "M", "L"],
+    "expectedCategory": "outerwear",
+    "expectedSubcategory": "Wool Overcoat",
+    "expectedRuleId": "cat-outerwear-overcoat",
+    "expectedOccasionsContain": ["Office daily", "Networking event"]
+  },
+  {
+    "title": "Pure Silk Twill Tie",
+    "breadcrumb": "Men > Ties",
+    "brandSlug": "charles-tyrwhitt",
+    "colors": ["Navy", "Burgundy"],
+    "sizes": ["One Size"],
+    "expectedCategory": "ties-pocket-squares",
+    "expectedSubcategory": "Silk Tie",
+    "expectedRuleId": "cat-tie-silk",
+    "expectedOccasionsContain": ["Interview", "Superday"]
+  },
+  {
+    "title": "Cedar Shoe Tree Pair",
+    "breadcrumb": "Men > Care & Accessories",
+    "brandSlug": "brooks-brothers",
+    "colors": ["Natural"],
+    "sizes": ["M", "L"],
+    "expectedCategory": null,
+    "expectedSubcategory": null,
+    "expectedRuleId": null,
+    "expectedOccasionsContain": []
+  }
+]
