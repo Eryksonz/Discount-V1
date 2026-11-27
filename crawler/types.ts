@@ -29,6 +29,8 @@ export interface CrawlAdapterContext {
   priorityProductIds?: Set<string>;
   /** Sale-week override: ignore 7-day freshness skip and re-fetch every in-stock product URL */
   forceRefresh?: boolean;
+  /** Resume guard: skip URLs already checked within the last N hours even during forceRefresh */
+  skipFetchedWithinHours?: number;
 }
 
 export interface BrandAdapter {
@@ -41,6 +43,8 @@ export interface BrandAdapter {
     circuitTripped: boolean;
     /** Total catalog URLs discovered (e.g. from sitemap) before incremental filtering */
     discoveredCatalogCount?: number;
+    /** Total URLs selected for fetching after incremental/force-refresh filtering */
+    urlsSelected?: number;
     /** Number of individual product URLs attempted in this run */
     urlsFetched?: number;
     incrementalStats?: IncrementalSelectionResult["stats"];

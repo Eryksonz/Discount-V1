@@ -24,25 +24,32 @@ on:
         required: false
         default: false
         type: boolean
+      skip_fetched_within_hours:
+        description: "Optional resume window in hours (e.g. 24): skip URLs already checked within N hours when resuming a failed/cancelled forced pass"
+        required: false
+        default: ""
       offset:
-        description: "Optional 0-based URL offset for splitting a manual forced pass across runs (e.g. 0, 600, 1200, 1800)"
+        description: "Optional 0-based URL offset if manually splitting a pass (not required with 150m manual timeout)"
         required: false
         default: "0"
       max_products:
-        description: "Optional batch size / safety-cap override per brand (leave blank for brand config default)"
+        description: "Optional safety-cap override per brand (leave blank for brand config default)"
         required: false
         default: ""
 
-# Queue concurrent runs targeting the same brand instead of overlapping and doubling request rate.
-# Runs for different brands use distinct concurrency keys and proceed independently.
+# Single shared concurrency group across ALL crawler workflows so an "all brands" scheduled run
+# and a single-brand manual run can NEVER overlap and hit the same domain at twice the rate.
+# Note: GitHub keeps at most 1 pending run per concurrency group — start manual runs one at a time.
 concurrency:
-  group: crawl-${{ inputs.brand || 'all' }}
+  group: tape-and-tailor-crawl
   cancel-in-progress: false
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # Manual workflow_dispatch gets 150m (fits a full ~101m forced Brooks Brothers pass in one job);
+    # scheduled cron runs stay tightly capped at 35m.
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 150 || 35 }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -85,8 +92,12 @@ jobs:
             if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
               FORCE_ARG="--force-refresh"
             fi
+            SKIP_ARG=""
+            if [ -n "${{ github.event.inputs.skip_fetched_within_hours }}" ]; then
+              SKIP_ARG="--skip-fetched-within-hours=${{ github.event.inputs.skip_fetched_within_hours }}"
+            fi
             MODE="${{ github.event.inputs.mode || 'manual' }}"
-            npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $OFFSET_ARG $MAX_ARG $FORCE_ARG
+            npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $OFFSET_ARG $MAX_ARG $FORCE_ARG $SKIP_ARG
           else
             # Scheduled cron runs ALWAYS use normal incremental baseline mode (never --force-refresh)
             npx tsx crawler/run.ts --mode=baseline

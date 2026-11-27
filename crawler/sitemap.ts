@@ -215,6 +215,8 @@ export function selectIncrementalUrls(params: {
   highScoreThreshold?: number;
   now?: Date;
   forceRefresh?: boolean;
+  /** Optional resume guard: when set (e.g. 24h), skip URLs already checked within the last N hours even during forceRefresh */
+  skipFetchedWithinHours?: number;
   /** @deprecated Alias for forceRefresh */
   forceFull?: boolean;
 }): IncrementalSelectionResult {
@@ -224,6 +226,12 @@ export function selectIncrementalUrls(params: {
   const highScoreThreshold = params.highScoreThreshold ?? 70;
   const priorityIds = params.priorityProductIds ?? new Set<string>();
   const forceRefresh = Boolean(params.forceRefresh ?? params.forceFull);
+  const skipWindowMs =
+    typeof params.skipFetchedWithinHours === "number" &&
+    Number.isFinite(params.skipFetchedWithinHours) &&
+    params.skipFetchedWithinHours > 0
+      ? params.skipFetchedWithinHours * 60 * 60 * 1000
+      : 0;
 
   // Ensure deterministic ordering by URL before selection
   const sortedEntries = [...params.entries].sort((a, b) => a.loc.localeCompare(b.loc));
@@ -232,6 +240,7 @@ export function selectIncrementalUrls(params: {
     const selected: SelectedSitemapUrl[] = [];
     let newCount = 0;
     let forcedRefreshCount = 0;
+    let skippedFresh = 0;
     let skippedOutOfStock = 0;
 
     for (const entry of sortedEntries) {
@@ -239,6 +248,10 @@ export function selectIncrementalUrls(params: {
       if (!existing) {
         selected.push({ ...entry, reason: "new" });
         newCount += 1;
+        continue;
+      }
+      if (skipWindowMs > 0 && now.getTime() - existing.lastCheckedAt.getTime() < skipWindowMs) {
+        skippedFresh += 1;
         continue;
       }
       if (existing.inStock) {
@@ -257,7 +270,7 @@ export function selectIncrementalUrls(params: {
       stats: {
         totalDiscovered: sortedEntries.length,
         selectedCount: selected.length,
-        skippedFresh: 0,
+        skippedFresh,
         skippedOutOfStock,
         newCount,
         lastmodChangedCount: selected.filter((s) => s.reason === "lastmod_changed").length,

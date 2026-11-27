@@ -170,4 +170,42 @@ describe("Sitemap discovery & hybrid incremental URL selection", () => {
     expect(batch2).toEqual(["https://example.com/p/c.html", "https://example.com/p/d.html"]);
     expect(new Set([...batch1, ...batch2]).size).toBe(4);
   });
+
+  it("skipFetchedWithinHours resumes a forced pass without refetching URLs checked inside the window", () => {
+    const now = new Date("2026-11-27T18:00:00Z");
+    const hoursAgo = (h: number) => new Date(now.getTime() - h * 60 * 60 * 1000);
+
+    const entries: SitemapUrlEntry[] = [
+      { loc: "https://example.com/p/already-done.html", lastmod: null },
+      { loc: "https://example.com/p/stale-forced.html", lastmod: null },
+      { loc: "https://example.com/p/never-seen.html", lastmod: null },
+    ];
+
+    const existing = new Map<string, ExistingProductCrawlState>([
+      [
+        "https://example.com/p/already-done.html",
+        { id: "1", productUrl: "https://example.com/p/already-done.html", lastCheckedAt: hoursAgo(2), inStock: true, dealScore: 50 },
+      ],
+      [
+        "https://example.com/p/stale-forced.html",
+        { id: "2", productUrl: "https://example.com/p/stale-forced.html", lastCheckedAt: hoursAgo(30), inStock: true, dealScore: 50 },
+      ],
+    ]);
+
+    const res = selectIncrementalUrls({
+      entries,
+      existingByUrl: existing,
+      now,
+      forceRefresh: true,
+      skipFetchedWithinHours: 24,
+    });
+
+    expect(res.selected.map((s) => s.loc)).toEqual([
+      "https://example.com/p/never-seen.html",
+      "https://example.com/p/stale-forced.html",
+    ]);
+    expect(res.stats.skippedFresh).toBe(1);
+    expect(res.stats.forcedRefreshCount).toBe(1);
+    expect(res.stats.newCount).toBe(1);
+  });
 });

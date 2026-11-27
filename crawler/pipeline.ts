@@ -132,6 +132,7 @@ export async function runBrandCrawl(params: {
   offset?: number;
   dryRun?: boolean;
   forceRefresh?: boolean;
+  skipFetchedWithinHours?: number;
 }): Promise<CrawlRunSummary> {
   const startedAt = new Date();
   const brandConfig = BRAND_BY_SLUG[params.brandSlug];
@@ -189,6 +190,7 @@ export async function runBrandCrawl(params: {
       maxProducts: safetyCap,
       offset: params.offset,
       forceRefresh: params.forceRefresh,
+      skipFetchedWithinHours: params.skipFetchedWithinHours,
     });
     let classifiedCount = 0;
     let outOfScopeCount = 0;
@@ -357,6 +359,7 @@ export async function runBrandCrawl(params: {
       existingProducts: existingCrawlStates,
       priorityProductIds,
       forceRefresh: params.forceRefresh,
+      skipFetchedWithinHours: params.skipFetchedWithinHours,
     });
 
     let newProducts = 0;
@@ -608,6 +611,10 @@ export async function runBrandCrawl(params: {
       crawlRes.discoveredCatalogCount !== undefined
         ? crawlRes.discoveredCatalogCount
         : crawlRes.products.length;
+    const urlsSelected =
+      crawlRes.urlsSelected !== undefined
+        ? crawlRes.urlsSelected
+        : crawlRes.incrementalStats?.selectedCount ?? urlsDiscovered;
     const urlsFetched =
       crawlRes.urlsFetched !== undefined ? crawlRes.urlsFetched : crawlRes.products.length;
     const urlsParsed = crawlRes.products.length;
@@ -623,10 +630,14 @@ export async function runBrandCrawl(params: {
       durationMs,
       productsSeen: effectiveCatalogCount,
       urlsDiscovered,
+      urlsSelected,
       urlsFetched,
       urlsParsed,
+      urlsQuarantined: quarantinedCount,
       urlsSkippedFresh,
       urlsSkippedOos,
+      batchOffset: params.offset && params.offset > 0 ? params.offset : null,
+      batchMaxProducts: params.maxProducts ?? null,
       forcedRefresh: Boolean(params.forceRefresh),
       priceChanges,
       newProducts,

@@ -17,8 +17,8 @@ A free, non-commercial, deterministic menswear price tracker for college student
 - **Standalone TypeScript Crawler (`crawler/`):**
   - **Faherty** & **Bonobos:** Full-catalog Shopify JSON pagination (`250 -> 100 -> 50` step-down + 25-item mid-catalog bisection).
   - **Brooks Brothers** & **Vineyard Vines:** Sitemap discovery (`crawler/sitemap.ts`) + `schema.org/ProductGroup` / `Product` / `BreadcrumbList` JSON-LD parser (`crawler/parsers/json-ld.ts`) respecting `robots.txt` and per-domain rate limits (no headless browser, no bot-challenge bypass). Supports hybrid incremental scheduled runs (default) and manual-only sale-week `--force-refresh` with deterministic `--offset` / `--max` batching.
-  - **Per-Run Coverage Reporting:** Every run records `urls_discovered`, `urls_fetched`, `urls_parsed`, `urls_skipped_fresh`, `urls_skipped_oos`, and `forced_refresh` in `crawl_runs`, surfaced in `/status` and `/admin`.
-  - **Concurrency Safety:** Both crawler workflows declare `concurrency: { group: "crawl-${{ inputs.brand || 'all' }}", cancel-in-progress: false }` so duplicate runs for the same brand queue safely while runs for different brands proceed independently.
+  - **Per-Run Coverage Reporting:** Every run records `urls_discovered`, `urls_selected`, `urls_fetched`, `urls_parsed`, `urls_quarantined`, `urls_skipped_fresh`, `urls_skipped_oos`, `batch_offset`, `batch_max_products`, and `forced_refresh` in `crawl_runs`. `/status` computes per-brand 24h coverage (`products fetched in last 24h / URLs discovered`) and flags a warning if coverage is `< 95%` after a forced pass.
+  - **Concurrency Safety:** Both crawler workflows share a single repository-wide concurrency group (`tape-and-tailor-crawl`, `cancel-in-progress: false`) so an `"all brands"` scheduled run and a single-brand manual run can never overlap on the same retailer domain. **Important:** GitHub Actions keeps at most **1 pending (queued) run** per concurrency group (a 3rd run cancels the waiting 2nd run), so if you ever run manual batches, start them one at a time.
   - **Brands Not Tracked Yet (e.g., Peter Millar):** Excluded from the feed and crawler; listed on Home and `/about` with a plain direct link to the brand's site and no prices.
 - **Product Detail, Local Watchlist & Alerts (`/p/[slug]`, `/watchlist`):**
   - Interactive 90-day Recharts step price chart with 90-day median and low overlays.
@@ -89,23 +89,33 @@ By default, **`SITE_INDEXING` is `"off"`** so staging or pre-launch `*.vercel.ap
 
 ## GitHub Actions Minutes Budget (Scheduled vs Manual Forced Passes)
 
-Scheduled cron runs (`crawl-baseline.yml` & `crawl-high-freq.yml`) **always** run in normal incremental mode; `--force-refresh` is strictly restricted to manual `workflow_dispatch`.
+Scheduled cron runs (`crawl-baseline.yml` & `crawl-high-freq.yml`) **always** run in normal incremental mode; `--force-refresh` is strictly restricted to manual `workflow_dispatch`. Note that GitHub Actions bills each job rounded **up to the next whole minute** (so an idle 40-second run still bills **1 full minute**).
 
 ### Scheduled Runs (Automatic Monthly Baseline)
-| Workflow | Schedule | Mode | Est. Runtime / Run | Runs / Month | Est. Monthly Minutes |
+| Workflow | Schedule | Mode | Est. Billed / Run | Runs / Month | Est. Monthly Minutes |
 | --- | --- | --- | ---: | ---: | ---: |
-| `crawl-baseline.yml` | Daily (`0 6 * * *`) | Incremental (`--mode=baseline`, no `--force-refresh`) | ~14–19 min | 30 | **~420–570 min** |
-| `crawl-high-freq.yml` (idle) | Every 4h (`0 */4 * * *`) | Opt-in incremental (exits immediately when 0 opted in) | ~0.5 min | ~156 | **~78 min** |
-| `crawl-high-freq.yml` (active sale windows) | Every 4h during active `sale_events` | Opt-in incremental | ~12 min | ~24 | **~288 min** |
-| **Scheduled Monthly Total** | | | | | **~786–936 min / mo (~39–47% of Free 2,000m)** |
+| `crawl-baseline.yml` | Daily (`0 6 * * *`) | Incremental (`--mode=baseline`, timeout 35m) | ~15–19 min | 30 | **~450–570 min** |
+| `crawl-high-freq.yml` (idle — 0 brands opted in) | Every 4h (`0 */4 * * *`) | Exits after DB check (`checkout` + `npm ci` ≈ 45s -> **1 billed min**) | **1 min** | 180 | **~180 min** |
+| `crawl-high-freq.yml` (active sale windows, e.g. 4 days/mo) | Every 4h during active `sale_events` | Opt-in incremental (replaces 24 of the 180 idle runs) | ~12 min | 24 | **+264 min net** |
+| **Scheduled Monthly Total (no active sale events)** | | | | | **~630–750 min / mo (~32–38% of Free 2,000m)** |
+| **Scheduled Monthly Total (4 active sale days/mo)** | | | | | **~894–1,014 min / mo (~45–51% of Free 2,000m)** |
 
-### Manual Forced Passes (`workflow_dispatch` with `force_refresh=true`)
-| Brand | Full Forced Pass Scope | Rate Limit | Est. Runtime | Recommended Batching (`offset` / `max_products`) |
+**Options to cut scheduled Actions minutes:**
+1. **Disable `crawl-high-freq.yml` in GitHub → Actions** until at least one brand is explicitly opted in (saves **~180–444 min/mo** immediately).
+2. **Make the repository public:** GitHub Actions minutes are unlimited ($0) for public repos (2,000 min/mo applies only to private repos).
+3. **Run baseline every 48h** during quiet off-season months (cuts baseline minutes in half to ~225–285 min/mo).
+
+### Manual Forced Passes (`workflow_dispatch` with `force_refresh=true`, 150m timeout)
+Manual `workflow_dispatch` jobs get a **150-minute timeout**, so even a full forced **Brooks Brothers** pass (~101m) completes in **one single job** without batching. If a job is ever cancelled or interrupted, re-run with `skip_fetched_within_hours=24` to resume cleanly without refetching already-checked URLs.
+
+| Brand | Full Forced Pass Scope | Rate Limit | Est. Runtime | Recommended Workflow Inputs |
 | --- | --- | ---: | ---: | --- |
-| **Faherty** | 2,689 SKUs (Shopify JSON) | 2.0s/req | **~0.5 min** | Single run |
-| **Bonobos** | 3,900 SKUs (Shopify JSON) | 2.0s/req | **~8.0 min** | Single run |
-| **Vineyard Vines** | 1,398 men's URLs (Sitemap JSON-LD) | 2.0s/req | **~47 min** | Single run (fits 90m timeout) or 2× `700` |
-| **Brooks Brothers** | 2,316 men's URLs (Sitemap JSON-LD) | 2.5s/req | **~101 min** | 2 runs (`offset=0, max=1200` + `offset=1200, max=1200`, ~50m each) or 4× `600` (~26m each) |
+| **Faherty** | 2,689 SKUs (Shopify JSON) | 2.0s/req | **~0.5 min** | `brand=faherty`, `force_refresh=true` |
+| **Bonobos** | 3,900 SKUs (Shopify JSON) | 2.0s/req | **~8.0 min** | `brand=bonobos`, `force_refresh=true` |
+| **Vineyard Vines** | 1,398 men's URLs (Sitemap JSON-LD) | 2.0s/req | **~47 min** | `brand=vineyard-vines`, `force_refresh=true` |
+| **Brooks Brothers** | 2,316 men's URLs (Sitemap JSON-LD) | 2.5s/req | **~101 min** | `brand=brooks-brothers`, `force_refresh=true` (single 150m job; resume with `skip_fetched_within_hours=24` if needed) |
+
+> **Queueing note:** Both workflows share the single `tape-and-tailor-crawl` concurrency group (`cancel-in-progress: false`). GitHub keeps at most **1 pending run** per concurrency group, so start manual runs/batches one at a time.
 
 ---
 

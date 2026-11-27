@@ -53,14 +53,19 @@ export default async function AdminStatusPage() {
     code: string;
     ingestionStatus: string;
     lastSuccessfulCrawlAt: string | null;
+    fetchedLast24h: number;
+    coverage24hPct: number | null;
+    coverageWarning: boolean;
     lastRunDiscovered: number | null;
+    lastRunSelected: number | null;
     lastRunFetched: number | null;
     lastRunParsed: number | null;
-    lastRunSkippedFresh: number | null;
+    lastRunQuarantined: number | null;
+    lastRunBatchOffset: number | null;
+    lastRunBatchMax: number | null;
+    lastRunForced: boolean;
     totalProducts: number;
     publicProducts: number;
-    outOfScopeProducts: number;
-    unclassifiedProducts: number;
     snapshotsCount: number;
   }> = [];
 
@@ -78,9 +83,8 @@ export default async function AdminStatusPage() {
         SELECT
           brand_slug,
           count(*)::int AS total_products,
-          count(*) FILTER (WHERE classification_status IN ('classified', 'manual'))::int AS public_products,
-          count(*) FILTER (WHERE classification_status = 'out_of_scope')::int AS out_of_scope_products,
-          count(*) FILTER (WHERE classification_status = 'unclassified')::int AS unclassified_products
+          count(*) FILTER (WHERE last_checked_at >= NOW() - INTERVAL '24 hours')::int AS fetched_last_24h,
+          count(*) FILTER (WHERE classification_status IN ('classified', 'manual'))::int AS public_products
         FROM products
         GROUP BY brand_slug
       `,
@@ -95,20 +99,28 @@ export default async function AdminStatusPage() {
           b.slug AS brand_slug,
           MAX(cr.finished_at) FILTER (WHERE cr.status = 'completed') AS last_successful_crawl_at,
           latest.urls_discovered,
+          latest.urls_selected,
           latest.urls_fetched,
           latest.urls_parsed,
-          latest.urls_skipped_fresh
+          latest.urls_quarantined,
+          latest.batch_offset,
+          latest.batch_max_products,
+          latest.forced_refresh
         FROM brands b
         LEFT JOIN crawl_runs cr ON cr.brand_id = b.id
         LEFT JOIN LATERAL (
-          SELECT urls_discovered, urls_fetched, urls_parsed, urls_skipped_fresh
+          SELECT
+            urls_discovered, urls_selected, urls_fetched, urls_parsed,
+            urls_quarantined, batch_offset, batch_max_products, forced_refresh
           FROM crawl_runs
           WHERE brand_id = b.id
           ORDER BY started_at DESC
           LIMIT 1
         ) latest ON TRUE
         GROUP BY
-          b.id, b.slug, latest.urls_discovered, latest.urls_fetched, latest.urls_parsed, latest.urls_skipped_fresh
+          b.id, b.slug, latest.urls_discovered, latest.urls_selected, latest.urls_fetched,
+          latest.urls_parsed, latest.urls_quarantined, latest.batch_offset,
+          latest.batch_max_products, latest.forced_refresh
       `,
     ]);
 
@@ -126,6 +138,21 @@ export default async function AdminStatusPage() {
       const c = crawlMap.get(b.slug);
       const snaps = snapMap.get(b.slug) ?? 0;
       totalSnapshots += snaps;
+
+      const fetchedLast24h = Number(p?.fetched_last_24h ?? 0);
+      const discovered =
+        c?.urls_discovered !== null && c?.urls_discovered !== undefined
+          ? Number(c.urls_discovered)
+          : null;
+      const lastRunForced = Boolean(c?.forced_refresh);
+      const coverage24hPct =
+        discovered !== null && discovered > 0
+          ? Math.round((fetchedLast24h / discovered) * 1000) / 10
+          : null;
+      const coverageWarning = Boolean(
+        lastRunForced && coverage24hPct !== null && coverage24hPct < 95
+      );
+
       brandRows.push({
         slug: b.slug,
         name: b.name,
@@ -134,9 +161,13 @@ export default async function AdminStatusPage() {
         lastSuccessfulCrawlAt: c?.last_successful_crawl_at
           ? new Date(String(c.last_successful_crawl_at)).toISOString()
           : null,
-        lastRunDiscovered:
-          c?.urls_discovered !== null && c?.urls_discovered !== undefined
-            ? Number(c.urls_discovered)
+        fetchedLast24h,
+        coverage24hPct,
+        coverageWarning,
+        lastRunDiscovered: discovered,
+        lastRunSelected:
+          c?.urls_selected !== null && c?.urls_selected !== undefined
+            ? Number(c.urls_selected)
             : null,
         lastRunFetched:
           c?.urls_fetched !== null && c?.urls_fetched !== undefined
@@ -144,14 +175,21 @@ export default async function AdminStatusPage() {
             : null,
         lastRunParsed:
           c?.urls_parsed !== null && c?.urls_parsed !== undefined ? Number(c.urls_parsed) : null,
-        lastRunSkippedFresh:
-          c?.urls_skipped_fresh !== null && c?.urls_skipped_fresh !== undefined
-            ? Number(c.urls_skipped_fresh)
+        lastRunQuarantined:
+          c?.urls_quarantined !== null && c?.urls_quarantined !== undefined
+            ? Number(c.urls_quarantined)
             : null,
+        lastRunBatchOffset:
+          c?.batch_offset !== null && c?.batch_offset !== undefined
+            ? Number(c.batch_offset)
+            : null,
+        lastRunBatchMax:
+          c?.batch_max_products !== null && c?.batch_max_products !== undefined
+            ? Number(c.batch_max_products)
+            : null,
+        lastRunForced,
         totalProducts: Number(p?.total_products ?? 0),
         publicProducts: Number(p?.public_products ?? 0),
-        outOfScopeProducts: Number(p?.out_of_scope_products ?? 0),
-        unclassifiedProducts: Number(p?.unclassified_products ?? 0),
         snapshotsCount: snaps,
       });
     }
@@ -230,7 +268,7 @@ export default async function AdminStatusPage() {
           </div>
         </div>
 
-        {/* Per-Brand Table with Crawl Coverage */}
+        {/* Per-Brand Table with 24h Coverage % & <95% Forced-Pass Warning */}
         <div className="rounded-lg border border-[#E2DCD0] bg-white overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-[#FAF8F3] border-b border-[#E2DCD0] font-mono text-[10px] uppercase tracking-wider text-[#5C6776]">
@@ -238,9 +276,9 @@ export default async function AdminStatusPage() {
                 <th className="px-4 py-3">Brand</th>
                 <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Last Successful Crawl</th>
-                <th className="px-4 py-3 text-right">Last Run (Disc / Fetch / Parse / Skip)</th>
-                <th className="px-4 py-3 text-right">Total SKUs</th>
-                <th className="px-4 py-3 text-right">Public</th>
+                <th className="px-4 py-3 text-right">24h Coverage (24h / Disc)</th>
+                <th className="px-4 py-3 text-right">Last Run (Sel / Fetch / Parse / Quar)</th>
+                <th className="px-4 py-3 text-right">Total / Public</th>
                 <th className="px-4 py-3 text-right">Snapshots</th>
               </tr>
             </thead>
@@ -275,16 +313,52 @@ export default async function AdminStatusPage() {
                         })
                       : "—"}
                   </td>
+                  <td className="px-4 py-3 text-right font-mono text-[11px] tabular-nums">
+                    {b.coverage24hPct !== null ? (
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span
+                          className={
+                            b.coverageWarning
+                              ? "font-bold text-[#8C3426]"
+                              : "font-semibold text-[#0F1D32]"
+                          }
+                        >
+                          {b.coverage24hPct.toFixed(1)}%{" "}
+                          <span className="font-normal text-[#5C6776]">
+                            ({b.fetchedLast24h}/{b.lastRunDiscovered})
+                          </span>
+                        </span>
+                        {b.coverageWarning && (
+                          <span className="inline-flex items-center gap-1 rounded bg-[#FAEEE9] border border-[#8C3426]/30 px-1.5 py-0.5 text-[9px] font-semibold text-[#8C3426]">
+                            <AlertTriangle className="w-2.5 h-2.5" />
+                            &lt;95% after forced pass
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-[#7A8490]">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right font-mono text-[11px] tabular-nums text-[#3E4C5E]">
-                    {b.lastRunDiscovered !== null
-                      ? `${b.lastRunDiscovered} / ${b.lastRunFetched ?? "—"} / ${b.lastRunParsed ?? "—"} / ${b.lastRunSkippedFresh ?? 0}`
-                      : "—"}
+                    {b.lastRunDiscovered !== null ? (
+                      <div>
+                        <span>
+                          {b.lastRunSelected ?? "—"} / {b.lastRunFetched ?? "—"} /{" "}
+                          {b.lastRunParsed ?? "—"} / {b.lastRunQuarantined ?? 0}
+                        </span>
+                        {(b.lastRunBatchOffset !== null || b.lastRunBatchMax !== null) && (
+                          <div className="text-[9px] text-[#7A8490]">
+                            batch off={b.lastRunBatchOffset ?? 0} max={b.lastRunBatchMax ?? "all"}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      "—"
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums">
-                    {b.totalProducts.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#14532D]">
-                    {b.publicProducts.toLocaleString()}
+                    {b.totalProducts.toLocaleString()}{" "}
+                    <span className="text-[#14532D]">/ {b.publicProducts.toLocaleString()}</span>
                   </td>
                   <td className="px-4 py-3 text-right font-mono font-semibold tabular-nums text-[#0F1D32]">
                     {b.snapshotsCount.toLocaleString()}

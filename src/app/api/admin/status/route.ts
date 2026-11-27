@@ -30,6 +30,7 @@ export async function GET() {
         SELECT
           brand_slug,
           count(*)::int AS total_products,
+          count(*) FILTER (WHERE last_checked_at >= NOW() - INTERVAL '24 hours')::int AS fetched_last_24h,
           count(*) FILTER (WHERE classification_status IN ('classified', 'manual'))::int AS public_products,
           count(*) FILTER (WHERE classification_status = 'out_of_scope')::int AS out_of_scope_products,
           count(*) FILTER (WHERE classification_status = 'unclassified')::int AS unclassified_products,
@@ -54,15 +55,22 @@ export async function GET() {
           latest.status AS last_run_status,
           latest.duration_ms AS last_run_duration_ms,
           latest.urls_discovered AS last_run_discovered,
+          latest.urls_selected AS last_run_selected,
           latest.urls_fetched AS last_run_fetched,
           latest.urls_parsed AS last_run_parsed,
+          latest.urls_quarantined AS last_run_quarantined,
           latest.urls_skipped_fresh AS last_run_skipped_fresh,
           latest.urls_skipped_oos AS last_run_skipped_oos,
+          latest.batch_offset AS last_run_batch_offset,
+          latest.batch_max_products AS last_run_batch_max_products,
           latest.forced_refresh AS last_run_forced_refresh
         FROM brands b
         LEFT JOIN crawl_runs cr ON cr.brand_id = b.id
         LEFT JOIN LATERAL (
-          SELECT status, duration_ms, urls_discovered, urls_fetched, urls_parsed, urls_skipped_fresh, urls_skipped_oos, forced_refresh
+          SELECT
+            status, duration_ms, urls_discovered, urls_selected, urls_fetched,
+            urls_parsed, urls_quarantined, urls_skipped_fresh, urls_skipped_oos,
+            batch_offset, batch_max_products, forced_refresh
           FROM crawl_runs
           WHERE brand_id = b.id
           ORDER BY started_at DESC
@@ -70,8 +78,10 @@ export async function GET() {
         ) latest ON TRUE
         GROUP BY
           b.id, b.slug, b.circuit_state, b.crawl_frequency,
-          latest.status, latest.duration_ms, latest.urls_discovered, latest.urls_fetched,
-          latest.urls_parsed, latest.urls_skipped_fresh, latest.urls_skipped_oos, latest.forced_refresh
+          latest.status, latest.duration_ms, latest.urls_discovered, latest.urls_selected,
+          latest.urls_fetched, latest.urls_parsed, latest.urls_quarantined,
+          latest.urls_skipped_fresh, latest.urls_skipped_oos,
+          latest.batch_offset, latest.batch_max_products, latest.forced_refresh
       `,
       sql`SELECT count(*)::int AS active_alerts FROM alerts WHERE active = TRUE`,
     ]);
@@ -83,6 +93,20 @@ export async function GET() {
   const brands = BRANDS.map((b) => {
     const p = prodByBrand.get(b.slug);
     const c = crawlByBrand.get(b.slug);
+    const fetchedLast24h = Number(p?.fetched_last_24h ?? 0);
+    const discovered =
+      c?.last_run_discovered !== null && c?.last_run_discovered !== undefined
+        ? Number(c.last_run_discovered)
+        : null;
+    const forcedRefresh = Boolean(c?.last_run_forced_refresh);
+    const coverage24hPct =
+      discovered !== null && discovered > 0
+        ? Math.round((fetchedLast24h / discovered) * 1000) / 10
+        : null;
+    const coverageWarning = Boolean(
+      forcedRefresh && coverage24hPct !== null && coverage24hPct < 95
+    );
+
     return {
       slug: b.slug,
       name: b.name,
@@ -98,13 +122,44 @@ export async function GET() {
         c?.last_run_duration_ms !== null && c?.last_run_duration_ms !== undefined
           ? Number(c.last_run_duration_ms)
           : null,
+      fetchedLast24h,
+      coverage24hPct,
+      coverageWarning,
       lastRunCoverage: {
-        discovered: c?.last_run_discovered !== null && c?.last_run_discovered !== undefined ? Number(c.last_run_discovered) : null,
-        fetched: c?.last_run_fetched !== null && c?.last_run_fetched !== undefined ? Number(c.last_run_fetched) : null,
-        parsed: c?.last_run_parsed !== null && c?.last_run_parsed !== undefined ? Number(c.last_run_parsed) : null,
-        skippedFresh: c?.last_run_skipped_fresh !== null && c?.last_run_skipped_fresh !== undefined ? Number(c.last_run_skipped_fresh) : null,
-        skippedOos: c?.last_run_skipped_oos !== null && c?.last_run_skipped_oos !== undefined ? Number(c.last_run_skipped_oos) : null,
-        forcedRefresh: Boolean(c?.last_run_forced_refresh),
+        discovered,
+        selected:
+          c?.last_run_selected !== null && c?.last_run_selected !== undefined
+            ? Number(c.last_run_selected)
+            : null,
+        fetched:
+          c?.last_run_fetched !== null && c?.last_run_fetched !== undefined
+            ? Number(c.last_run_fetched)
+            : null,
+        parsed:
+          c?.last_run_parsed !== null && c?.last_run_parsed !== undefined
+            ? Number(c.last_run_parsed)
+            : null,
+        quarantined:
+          c?.last_run_quarantined !== null && c?.last_run_quarantined !== undefined
+            ? Number(c.last_run_quarantined)
+            : null,
+        skippedFresh:
+          c?.last_run_skipped_fresh !== null && c?.last_run_skipped_fresh !== undefined
+            ? Number(c.last_run_skipped_fresh)
+            : null,
+        skippedOos:
+          c?.last_run_skipped_oos !== null && c?.last_run_skipped_oos !== undefined
+            ? Number(c.last_run_skipped_oos)
+            : null,
+        batchOffset:
+          c?.last_run_batch_offset !== null && c?.last_run_batch_offset !== undefined
+            ? Number(c.last_run_batch_offset)
+            : null,
+        batchMaxProducts:
+          c?.last_run_batch_max_products !== null && c?.last_run_batch_max_products !== undefined
+            ? Number(c.last_run_batch_max_products)
+            : null,
+        forcedRefresh,
       },
       totalProducts: Number(p?.total_products ?? 0),
       publicProducts: Number(p?.public_products ?? 0),

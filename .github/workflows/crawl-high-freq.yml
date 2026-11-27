@@ -4,6 +4,7 @@ on:
   schedule:
     # Every 4 hours; exits immediately (<2s) when 0 brands are opted in.
     # Always uses normal incremental mode (never --force-refresh).
+    # Tip: Disable this workflow in GitHub -> Actions when no brands are opted in to save ~180 billed min/month.
     - cron: "0 */4 * * *"
   workflow_dispatch:
     inputs:
@@ -12,10 +13,10 @@ on:
         required: false
         default: ""
 
-# Queue concurrent runs for the same brand instead of overlapping and doubling request rate.
-# Runs for different brands use distinct keys and can proceed independently.
+# Shares the exact same concurrency group as crawl-baseline.yml so no two crawler runs can ever
+# overlap and hit the same brand domain simultaneously.
 concurrency:
-  group: crawl-${{ inputs.brand || 'all' }}
+  group: tape-and-tailor-crawl
   cancel-in-progress: false
 
 jobs:

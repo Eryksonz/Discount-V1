@@ -145,6 +145,7 @@ async function tryJsonLd(ctx: CrawlAdapterContext): Promise<{
   errors: string[];
   circuitTripped: boolean;
   discoveredCatalogCount?: number;
+  urlsSelected?: number;
   urlsFetched?: number;
   incrementalStats?: IncrementalSelectionResult["stats"];
 }> {
@@ -177,6 +178,7 @@ async function tryJsonLd(ctx: CrawlAdapterContext): Promise<{
         existingByUrl,
         priorityProductIds: ctx.priorityProductIds,
         forceRefresh: ctx.forceRefresh,
+        skipFetchedWithinHours: ctx.skipFetchedWithinHours,
       });
 
       const batch = sliceUrlBatch(selection.selected, ctx.offset ?? 0, safetyCap);
@@ -195,6 +197,7 @@ async function tryJsonLd(ctx: CrawlAdapterContext): Promise<{
             errors,
             circuitTripped: true,
             discoveredCatalogCount: discovery.entries.length,
+            urlsSelected: selection.selected.length,
             urlsFetched,
             incrementalStats: selection.stats,
           };
@@ -222,6 +225,7 @@ async function tryJsonLd(ctx: CrawlAdapterContext): Promise<{
         errors,
         circuitTripped: false,
         discoveredCatalogCount: discovery.entries.length,
+        urlsSelected: selection.selected.length,
         urlsFetched,
         incrementalStats: selection.stats,
       };
@@ -366,6 +370,7 @@ export function createBrandAdapter(brandSlug: string): BrandAdapter {
               errors: allErrors,
               circuitTripped: true,
               discoveredCatalogCount: res.discoveredCatalogCount,
+              urlsSelected: res.urlsSelected,
               urlsFetched: res.urlsFetched,
               incrementalStats: res.incrementalStats,
             };
@@ -381,6 +386,7 @@ export function createBrandAdapter(brandSlug: string): BrandAdapter {
               errors: allErrors,
               circuitTripped: false,
               discoveredCatalogCount: res.discoveredCatalogCount,
+              urlsSelected: res.urlsSelected,
               urlsFetched: res.urlsFetched,
               incrementalStats: res.incrementalStats,
             };
