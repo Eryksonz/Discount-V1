@@ -38,6 +38,11 @@ export function SiteFooter() {
             </div>
             <ul className="space-y-1.5 text-xs">
               <li>
+                <Link href="/about" className="hover:text-white transition-colors">
+                  About Tape &amp; Tailor
+                </Link>
+              </li>
+              <li>
                 <a href="#methodology" className="hover:text-white transition-colors">
                   Deal Score &amp; 90-Day Median Formula
                 </a>

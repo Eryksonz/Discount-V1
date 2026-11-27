@@ -363,10 +363,18 @@ export async function runBrandCrawl(params: {
           capturedAt: now,
         });
         priceChanges += 1;
+        const compareAtGapPct =
+          raw.originalPriceCents > 0 && raw.originalPriceCents >= raw.currentPriceCents
+            ? Math.round(
+                ((raw.originalPriceCents - raw.currentPriceCents) / raw.originalPriceCents) *
+                  10000
+              ) / 100
+            : null;
         snapshotsToInsert.push({
           productId,
           priceCents: raw.currentPriceCents,
           originalPriceCents: raw.originalPriceCents,
+          compareAtGapPct,
           inStock: raw.inStock,
           capturedAt: now,
         });

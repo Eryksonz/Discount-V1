@@ -35,6 +35,7 @@ export const brands = pgTable("brands", {
   circuitState: text("circuit_state").notNull().default("active"), // active | degraded | disabled
   consecutiveErrors: integer("consecutive_errors").notNull().default(0),
   highFrequencyMode: boolean("high_frequency_mode").notNull().default(false),
+  crawlFrequency: text("crawl_frequency").notNull().default("daily"), // daily | high_freq | paused
   lastCrawledAt: timestamp("last_crawled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
@@ -118,10 +119,46 @@ export const priceSnapshots = pgTable(
       .references(() => products.id, { onDelete: "cascade" }),
     priceCents: integer("price_cents").notNull(),
     originalPriceCents: integer("original_price_cents").notNull(),
+    compareAtGapPct: doublePrecision("compare_at_gap_pct"),
     inStock: boolean("in_stock").notNull().default(true),
     capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
   },
   (table) => [index("price_snapshots_product_captured_idx").on(table.productId, table.capturedAt)]
+);
+
+/**
+ * Manually managed checkout promo codes (strictly display layer — NEVER included in price_snapshots or Deal Engine history).
+ */
+export const brandPromos = pgTable(
+  "brand_promos",
+  {
+    id: serial("id").primaryKey(),
+    brandId: integer("brand_id")
+      .notNull()
+      .references(() => brands.id, { onDelete: "cascade" }),
+    brandSlug: text("brand_slug").notNull(),
+    description: text("description").notNull(),
+    code: text("code"),
+    percentOff: doublePrecision("percent_off"),
+    amountOffCents: integer("amount_off_cents"),
+    minSpendCents: integer("min_spend_cents"),
+    appliesTo: text("applies_to").notNull().default("Sitewide"),
+    hasExclusions: boolean("has_exclusions").notNull().default(true),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    sourceUrl: text("source_url"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }).defaultNow().notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => [
+    index("brand_promos_brand_active_idx").on(
+      table.brandSlug,
+      table.active,
+      table.startsAt,
+      table.endsAt
+    ),
+  ]
 );
 
 /** Outbound redirect audit log for affiliate click reporting */

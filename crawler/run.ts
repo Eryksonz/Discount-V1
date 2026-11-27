@@ -27,7 +27,10 @@ async function resolveOptInHighFrequencyBrands(): Promise<string[]> {
     const eligible = new Set<string>();
 
     const optInBrands = await sql`
-      SELECT slug FROM brands WHERE high_frequency_mode = TRUE AND circuit_state != 'disabled'
+      SELECT slug FROM brands
+      WHERE (high_frequency_mode = TRUE OR crawl_frequency = 'high_freq')
+        AND crawl_frequency != 'paused'
+        AND circuit_state != 'disabled'
     `;
     for (const r of optInBrands) {
       if (pilotSet.has(r.slug)) eligible.add(r.slug);

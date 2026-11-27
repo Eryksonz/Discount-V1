@@ -1,3 +1,5 @@
+import Image from "next/image";
+
 interface GarmentEditorialVisualProps {
   imageUrl: string | null;
   name: string;
@@ -7,6 +9,7 @@ interface GarmentEditorialVisualProps {
   subcategory: string | null;
   colors: string[];
   inStock: boolean;
+  tall?: boolean;
 }
 
 const COLOR_DOT_HEX: Record<string, string> = {
@@ -128,17 +131,19 @@ export function GarmentEditorialVisual({
   subcategory,
   colors,
   inStock,
+  tall = false,
 }: GarmentEditorialVisualProps) {
   if (imageUrl) {
     return (
-      <div className="relative h-36 w-full overflow-hidden rounded-md border border-[#E6E0D4] bg-[#F5F2EB]">
-        {/* Hotlinked retailer image URL (Phase 2+) */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+      <div
+        className={`relative ${tall ? "h-80" : "h-36"} w-full overflow-hidden rounded-md border border-[#E6E0D4] bg-[#F5F2EB]`}
+      >
+        <Image
           src={imageUrl}
           alt={name}
-          loading="lazy"
-          className="h-full w-full object-cover object-center"
+          fill
+          sizes={tall ? "(max-width: 1024px) 100vw, 360px" : "(max-width: 768px) 100vw, 320px"}
+          className="object-cover object-center"
         />
         {!inStock && (
           <span className="absolute top-2 right-2 rounded bg-[#0F1D32]/85 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase text-white">
@@ -151,7 +156,7 @@ export function GarmentEditorialVisual({
 
   return (
     <div
-      className="relative h-32 w-full overflow-hidden rounded-md border border-[#E6E0D4] flex flex-col justify-between p-3"
+      className={`relative ${tall ? "h-64" : "h-32"} w-full overflow-hidden rounded-md border border-[#E6E0D4] flex flex-col justify-between p-3`}
       style={{
         backgroundColor: "#F5F1E8",
         borderTopWidth: "3px",

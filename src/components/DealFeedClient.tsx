@@ -45,6 +45,7 @@ export function DealFeedClient({ initialData }: DealFeedClientProps) {
   const [inStockOnly, setInStockOnly] = useState(true);
   const [sort, setSort] = useState<SortOption>("score_desc");
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(24);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   const isFirstRender = useRef(true);
@@ -67,7 +68,7 @@ export function DealFeedClient({ initialData }: DealFeedClientProps) {
     if (inStockOnly) params.set("inStockOnly", "true");
     params.set("sort", sort);
     params.set("page", String(page));
-    params.set("pageSize", "24");
+    params.set("pageSize", String(pageSize));
 
     setLoading(true);
     try {
@@ -97,6 +98,7 @@ export function DealFeedClient({ initialData }: DealFeedClientProps) {
     inStockOnly,
     sort,
     page,
+    pageSize,
   ]);
 
   useEffect(() => {
@@ -363,6 +365,29 @@ export function DealFeedClient({ initialData }: DealFeedClientProps) {
         unclassifiedCount={data.unclassifiedCount}
       />
 
+      {data.activeSaleEvents.length > 0 && (
+        <div
+          role="status"
+          className="w-full bg-[#14532D] text-[#FAF8F3] border-b border-[#B8924A]/50 px-4 py-2"
+        >
+          <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 rounded bg-[#0B351D] px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-widest text-[#E5C98B]">
+                <span className="h-1.5 w-1.5 rounded-full bg-[#4ADE80]" />
+                Sale Event Live
+              </span>
+              <span className="font-semibold">
+                {data.activeSaleEvents.map((e) => e.name).join(" · ")}
+              </span>
+            </div>
+            <span className="text-[11px] text-[#DCECE2]">
+              Prices reflect a sitewide sale; compare against price history, not the brand-listed
+              price.
+            </span>
+          </div>
+        </div>
+      )}
+
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6">
         {/* Editorial Hero + Compact Market Overview Strip */}
         <section className="pb-6 border-b border-[#E2DCD0]">
@@ -512,7 +537,7 @@ export function DealFeedClient({ initialData }: DealFeedClientProps) {
               ))}
             </div>
 
-            <div className="font-mono text-xs text-[#5C6776] tabular-nums">
+            <div className="flex items-center gap-3 font-mono text-xs text-[#5C6776] tabular-nums">
               {loading ? (
                 <span>Refreshing tape...</span>
               ) : (
@@ -521,6 +546,19 @@ export function DealFeedClient({ initialData }: DealFeedClientProps) {
                   <strong className="text-[#0F1D32]">{data.totalMatched}</strong> matching SKUs
                 </span>
               )}
+              <select
+                aria-label="Items per page"
+                value={pageSize}
+                onChange={(e) => {
+                  setPage(1);
+                  setPageSize(Number(e.target.value));
+                }}
+                className="rounded border border-[#D8D0C0] bg-white px-2 py-1 text-[11px] text-[#0F1D32]"
+              >
+                <option value={24}>24 / page</option>
+                <option value={36}>36 / page</option>
+                <option value={48}>48 / page</option>
+              </select>
             </div>
           </div>
         </section>

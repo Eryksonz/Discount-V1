@@ -17,6 +17,7 @@
     "probe": "tsx scripts/probe-brand.ts",
     "crawl": "tsx crawler/run.ts",
     "crawl:dry": "tsx crawler/run.ts --dry-run",
+    "alerts:check": "tsx crawler/check-alerts.ts",
     "hooks:install": "git config core.hooksPath .githooks"
   },
   "dependencies": {
@@ -32,6 +33,7 @@
     "postgres": "^3.4.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "recharts": "^3.11.1",
     "resend": "^6.40.1",
     "tailwind-merge": "^3.0.1"
   },

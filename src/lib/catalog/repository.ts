@@ -1,6 +1,7 @@
 import { BRANDS, BRAND_BY_SLUG } from "@config/brands";
 import { getSqlClient, isDatabaseConfigured } from "@/db";
 import { generateSeedCatalog, type SeededProductRecord } from "@/db/seed-data";
+import type { ActiveBrandPromo, ActiveSaleEvent } from "@/lib/promos";
 
 export interface CatalogQueryParams {
   q?: string;
@@ -61,7 +62,15 @@ export interface ProductFeedItem {
     total: number;
   };
   dealBlurb: string;
-  sparkline: Array<{ priceCents: number; capturedAt: string }>;
+  sparkline: Array<{
+    priceCents: number;
+    originalPriceCents?: number;
+    compareAtGapPct?: number | null;
+    inStock?: boolean;
+    capturedAt: string;
+  }>;
+  activePromo?: ActiveBrandPromo | null;
+  activeSaleEvent?: ActiveSaleEvent | null;
 }
 
 export interface BrandCodeStat {
@@ -76,7 +85,6 @@ export interface BrandCodeStat {
 
 export interface CatalogFeedResponse {
   source: "postgres" | "demo-fallback";
-  /** True whenever demo/simulated products are being shown (either via fallback OR demo-seeded DB rows) */
   isDemoData: boolean;
   liveCrawledCount: number;
   demoSeededCount: number;
@@ -85,6 +93,9 @@ export interface CatalogFeedResponse {
   unclassifiedCount: number;
   page: number;
   pageSize: number;
+  queryDurationMs?: number;
+  activeSaleEvents: ActiveSaleEvent[];
+  activePromosByBrand: Record<string, ActiveBrandPromo>;
   items: ProductFeedItem[];
   marketStats: {
     verifiedDealsCount: number;
@@ -147,9 +158,7 @@ function matchesSearchFallback(item: SeededProductRecord, query: string): boolea
   if (!q) return true;
   const corpus = `${item.name} ${item.brandName} ${item.brandCode} ${item.subcategory ?? ""} ${item.category ?? ""} ${item.colors.join(" ")}`.toLowerCase();
   const tokens = q.split(/\s+/).filter(Boolean);
-  if (tokens.every((token) => corpus.includes(token))) {
-    return true;
-  }
+  if (tokens.every((token) => corpus.includes(token))) return true;
   const words = corpus.split(/\s+/);
   return tokens.every(
     (token) =>
@@ -199,188 +208,82 @@ function toFeedItem(item: SeededProductRecord): ProductFeedItem {
     dealBlurb: item.dealBlurb,
     sparkline: item.snapshots.map((s) => ({
       priceCents: s.priceCents,
+      originalPriceCents: s.originalPriceCents,
+      inStock: s.inStock,
       capturedAt: s.capturedAt.toISOString(),
     })),
   };
 }
 
-function buildStripAndStats(classifiedItems: ProductFeedItem[]) {
-  const verified = classifiedItems.filter(
-    (i) => i.dealLabel === "Lowest in 90 days" || i.dealLabel === "Real deal"
-  );
-  const lowest90d = classifiedItems.filter((i) => i.dealLabel === "Lowest in 90 days");
-
-  const savingsSorted = verified
-    .map((i) => i.pctBelowMedian)
-    .filter((v) => v > 0)
-    .sort((a, b) => a - b);
-  const medianVerifiedSavingsPct =
-    savingsSorted.length > 0
-      ? Math.round(savingsSorted[Math.floor(savingsSorted.length / 2)])
-      : 0;
-
-  const lastCheckedMs = classifiedItems.reduce(
-    (max, i) => Math.max(max, new Date(i.lastCheckedAt).getTime()),
-    0
-  );
-
-  const brandStrip: BrandCodeStat[] = BRANDS.map((brand) => {
-    const brandItems = classifiedItems.filter((i) => i.brandSlug === brand.slug);
-    const brandDeals = brandItems.filter(
-      (i) => i.dealLabel === "Lowest in 90 days" || i.dealLabel === "Real deal"
-    );
-    const avgBelowMedianPct =
-      brandDeals.length > 0
-        ? Math.round(
-            brandDeals.reduce((acc, i) => acc + Math.max(0, i.pctBelowMedian), 0) /
-              brandDeals.length
-          )
-        : 0;
-    const topDealScore = brandItems.reduce((m, i) => Math.max(m, i.dealScore), 0);
-    return {
-      slug: brand.slug,
-      name: brand.name,
-      brandCode: brand.code,
-      swatchHex: brand.swatchHex,
-      activeDeals: brandDeals.length,
-      avgBelowMedianPct,
-      topDealScore,
-    };
-  });
-
-  const brandCounts: Record<string, number> = {};
-  const categoryCounts: Record<string, number> = {};
-  const sizeSet = new Set<string>();
-
-  for (const item of classifiedItems) {
-    brandCounts[item.brandSlug] = (brandCounts[item.brandSlug] ?? 0) + 1;
-    if (item.category) {
-      categoryCounts[item.category] = (categoryCounts[item.category] ?? 0) + 1;
-    }
-    for (const s of item.sizes) sizeSet.add(s);
-  }
+function mapPgProductRow(
+  row: Record<string, unknown>,
+  snapMap: Map<string, ProductFeedItem["sparkline"]>,
+  promosByBrand: Record<string, ActiveBrandPromo>,
+  saleEvents: ActiveSaleEvent[]
+): ProductFeedItem {
+  const brandSlug = String(row.brand_slug);
+  const brand = BRAND_BY_SLUG[brandSlug];
+  const matchingSale =
+    saleEvents.find((e) => e.brandSlug === brandSlug) ??
+    saleEvents.find((e) => e.brandSlug === null) ??
+    null;
 
   return {
-    marketStats: {
-      verifiedDealsCount: verified.length,
-      lowest90dCount: lowest90d.length,
-      medianVerifiedSavingsPct,
-      brandsTracked: BRANDS.length,
-      lastCheckedAt: lastCheckedMs
-        ? new Date(lastCheckedMs).toISOString()
-        : new Date().toISOString(),
-    },
-    brandStrip,
-    facets: {
-      brandCounts,
-      categoryCounts,
-      availableSizes: Array.from(sizeSet).sort(),
-    },
+    id: String(row.id),
+    slug: String(row.slug),
+    brandSlug,
+    brandName: brand?.name ?? brandSlug,
+    brandCode: brand?.code ?? brandSlug.slice(0, 4).toUpperCase(),
+    brandSwatchHex: brand?.swatchHex ?? "#1B365D",
+    name: String(row.name),
+    dataSource: row.data_source === "demo" ? "demo" : "crawler",
+    category: row.category ? String(row.category) : null,
+    subcategory: row.subcategory ? String(row.subcategory) : null,
+    occasions: Array.isArray(row.occasions) ? (row.occasions as string[]) : [],
+    colors: Array.isArray(row.colors) ? (row.colors as string[]) : [],
+    sizes: Array.isArray(row.sizes) ? (row.sizes as string[]) : [],
+    matchedRuleId: row.matched_rule_id ? String(row.matched_rule_id) : null,
+    currentPriceCents: Number(row.current_price_cents),
+    originalPriceCents: Number(row.original_price_cents),
+    currency: String(row.currency ?? "USD"),
+    productUrl: String(row.product_url),
+    imageUrl: row.image_url ? String(row.image_url) : null,
+    inStock: Boolean(row.in_stock),
+    dataNote: row.data_note ? String(row.data_note) : null,
+    lastCheckedAt: new Date(String(row.last_checked_at)).toISOString(),
+    median30dCents: Number(row.median_30d_cents),
+    median90dCents: Number(row.median_90d_cents),
+    low90dCents: Number(row.low_90d_cents),
+    allTimeLowCents: Number(row.all_time_low_cents),
+    timesAtOrBelowCurrent: Number(row.times_at_or_below_current),
+    lastPriceChangeCents: Number(row.last_price_change_cents),
+    lastPriceChangeAt: row.last_price_change_at
+      ? new Date(String(row.last_price_change_at)).toISOString()
+      : null,
+    pctBelowMedian: Number(row.pct_below_median),
+    pctBelowOriginal: Number(row.pct_below_original),
+    historyDays: Number(row.history_days),
+    dealLabel: String(row.deal_label),
+    dealScore: Number(row.deal_score),
+    dealScoreBreakdown: row.deal_score_breakdown as ProductFeedItem["dealScoreBreakdown"],
+    dealBlurb: String(row.deal_blurb ?? ""),
+    sparkline: snapMap.get(String(row.id)) ?? [],
+    activePromo: promosByBrand[brandSlug] ?? null,
+    activeSaleEvent: matchingSale,
   };
 }
 
-function filterAndSortItems(
-  allItems: ProductFeedItem[],
-  params: CatalogQueryParams,
-  skipSearchFilter = false
-): ProductFeedItem[] {
-  let result = allItems;
-
-  if (!skipSearchFilter && params.q?.trim()) {
-    const q = params.q.trim().toLowerCase();
-    const fallbackById = new Map(getFallbackCatalog().map((r) => [r.id, r]));
-    result = result.filter((item) => {
-      const rec = fallbackById.get(item.id);
-      if (rec) return matchesSearchFallback(rec, q);
-      const corpus = `${item.name} ${item.brandName} ${item.brandCode} ${item.subcategory ?? ""}`.toLowerCase();
-      return corpus.includes(q) || trigramSimilarity(q, item.name) >= 0.25;
-    });
-  }
-
-  if (params.brands && params.brands.length > 0) {
-    const set = new Set(params.brands);
-    result = result.filter((i) => set.has(i.brandSlug));
-  }
-
-  if (params.categories && params.categories.length > 0) {
-    const set = new Set(params.categories);
-    result = result.filter((i) => i.category && set.has(i.category));
-  }
-
-  if (params.occasions && params.occasions.length > 0) {
-    const set = new Set(params.occasions);
-    result = result.filter((i) => i.occasions.some((occ) => set.has(occ)));
-  }
-
-  if (params.size?.trim()) {
-    const target = params.size.trim().toUpperCase();
-    result = result.filter((i) => i.sizes.some((s) => s.toUpperCase() === target));
-  }
-
-  if (typeof params.minPrice === "number" && Number.isFinite(params.minPrice)) {
-    result = result.filter((i) => i.currentPriceCents >= params.minPrice! * 100);
-  }
-
-  if (typeof params.maxPrice === "number" && Number.isFinite(params.maxPrice)) {
-    result = result.filter((i) => i.currentPriceCents <= params.maxPrice! * 100);
-  }
-
-  if (typeof params.minDiscountVsMedian === "number" && params.minDiscountVsMedian > 0) {
-    result = result.filter((i) => i.pctBelowMedian >= params.minDiscountVsMedian!);
-  }
-
-  if (params.dealSignal === "lowest_90d") {
-    result = result.filter((i) => i.dealLabel === "Lowest in 90 days");
-  } else if (params.dealSignal === "real_deal") {
-    result = result.filter((i) => i.dealLabel === "Real deal");
-  } else if (params.dealSignal === "verified_only") {
-    result = result.filter(
-      (i) => i.dealLabel === "Lowest in 90 days" || i.dealLabel === "Real deal"
-    );
-  }
-
-  if (params.inStockOnly) {
-    result = result.filter((i) => i.inStock);
-  }
-
-  const sortMode = params.sort ?? "score_desc";
-  result = [...result].sort((a, b) => {
-    switch (sortMode) {
-      case "discount_desc":
-        return b.pctBelowMedian - a.pctBelowMedian || b.dealScore - a.dealScore;
-      case "price_asc":
-        return a.currentPriceCents - b.currentPriceCents;
-      case "price_desc":
-        return b.currentPriceCents - a.currentPriceCents;
-      case "newest_drop": {
-        const aTime =
-          a.lastPriceChangeCents < 0 && a.lastPriceChangeAt
-            ? new Date(a.lastPriceChangeAt).getTime()
-            : 0;
-        const bTime =
-          b.lastPriceChangeCents < 0 && b.lastPriceChangeAt
-            ? new Date(b.lastPriceChangeAt).getTime()
-            : 0;
-        return bTime - aTime || b.dealScore - a.dealScore;
-      }
-      case "score_desc":
-      default:
-        return b.dealScore - a.dealScore || b.pctBelowMedian - a.pctBelowMedian;
-    }
-  });
-
-  return result;
-}
-
 /**
- * Loads the deal feed from PostgreSQL (FTS + pg_trgm).
- * Only falls back to deterministic demo seed data when DEMO_MODE=true; throws loudly otherwise.
+ * Loads the deal feed using indexed SQL filtering, Postgres FTS + pg_trgm search, and SQL LIMIT/OFFSET pagination.
+ * Fetches snapshots ONLY for the current page's product IDs (typically 24-48 rows).
  */
 export async function queryCatalogFeed(
   params: CatalogQueryParams = {}
 ): Promise<CatalogFeedResponse> {
+  const t0 = Date.now();
   const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(60, Math.max(1, params.pageSize ?? 24));
+  const pageSize = Math.min(48, Math.max(1, params.pageSize ?? 24));
+  const offset = (page - 1) * pageSize;
 
   if (!isDatabaseConfigured()) {
     assertDemoFallbackAllowed("DATABASE_URL is not configured");
@@ -390,131 +293,387 @@ export async function queryCatalogFeed(
   if (sql) {
     try {
       const q = params.q?.trim() ?? "";
-      const rows = q
-        ? await sql`
-            SELECT p.*,
-              (
-                ts_rank(p.search_vector, websearch_to_tsquery('english', ${q})) * 2.0 +
-                similarity(p.name, ${q})
-              ) AS search_rank
-            FROM products p
-            WHERE p.classification_status IN ('classified', 'manual')
-              AND (
-                p.search_vector @@ websearch_to_tsquery('english', ${q})
-                OR similarity(p.name, ${q}) > 0.2
-                OR p.brand_slug ILIKE ${"%" + q + "%"}
-              )
-            ORDER BY search_rank DESC, p.deal_score DESC
-          `
-        : await sql`
-            SELECT p.* FROM products p
-            WHERE p.classification_status IN ('classified', 'manual')
-            ORDER BY p.deal_score DESC
-          `;
+      const whereClauses: string[] = [`p.classification_status IN ('classified', 'manual')`];
+      const bindValues: unknown[] = [];
 
-      const [{ count: unclassifiedCountRaw }] = await sql`
-        SELECT count(*)::int AS count FROM products WHERE classification_status = 'unclassified'
-      `;
+      const pushParam = (val: unknown): string => {
+        bindValues.push(val);
+        return `$${bindValues.length}`;
+      };
 
-      const allSnapshots = await sql`
-        SELECT product_id, price_cents, captured_at
-        FROM price_snapshots
-        ORDER BY captured_at ASC
-      `;
-      const snapMap = new Map<string, Array<{ priceCents: number; capturedAt: string }>>();
-      for (const s of allSnapshots) {
-        const list = snapMap.get(s.product_id) ?? [];
-        list.push({
-          priceCents: Number(s.price_cents),
-          capturedAt: new Date(s.captured_at).toISOString(),
-        });
-        snapMap.set(s.product_id, list);
+      let searchRankExpr = "0";
+      if (q) {
+        const qParam = pushParam(q);
+        const likeParam = pushParam(`%${q}%`);
+        whereClauses.push(
+          `(p.search_vector @@ websearch_to_tsquery('english', ${qParam}) OR similarity(p.name, ${qParam}) > 0.2 OR p.brand_slug ILIKE ${likeParam})`
+        );
+        searchRankExpr = `(ts_rank(p.search_vector, websearch_to_tsquery('english', ${qParam})) * 2.0 + similarity(p.name, ${qParam}))`;
       }
 
-      const mapped: ProductFeedItem[] = rows.map((row) => {
-        const brand = BRAND_BY_SLUG[row.brand_slug];
+      if (params.brands && params.brands.length > 0) {
+        const pRef = pushParam(params.brands);
+        whereClauses.push(`p.brand_slug = ANY(${pRef}::text[])`);
+      }
+
+      if (params.categories && params.categories.length > 0) {
+        const pRef = pushParam(params.categories);
+        whereClauses.push(`p.category = ANY(${pRef}::text[])`);
+      }
+
+      if (params.occasions && params.occasions.length > 0) {
+        const pRef = pushParam(params.occasions);
+        whereClauses.push(`p.occasions ?| ${pRef}::text[]`);
+      }
+
+      if (params.size?.trim()) {
+        const pRef = pushParam(params.size.trim().toUpperCase());
+        whereClauses.push(`p.sizes ? ${pRef}`);
+      }
+
+      if (typeof params.minPrice === "number" && Number.isFinite(params.minPrice)) {
+        const pRef = pushParam(Math.round(params.minPrice * 100));
+        whereClauses.push(`p.current_price_cents >= ${pRef}`);
+      }
+
+      if (typeof params.maxPrice === "number" && Number.isFinite(params.maxPrice)) {
+        const pRef = pushParam(Math.round(params.maxPrice * 100));
+        whereClauses.push(`p.current_price_cents <= ${pRef}`);
+      }
+
+      if (typeof params.minDiscountVsMedian === "number" && params.minDiscountVsMedian > 0) {
+        const pRef = pushParam(params.minDiscountVsMedian);
+        whereClauses.push(`p.pct_below_median >= ${pRef}`);
+      }
+
+      if (params.dealSignal === "lowest_90d") {
+        whereClauses.push(`p.deal_label = 'Lowest in 90 days'`);
+      } else if (params.dealSignal === "real_deal") {
+        whereClauses.push(`p.deal_label = 'Real deal'`);
+      } else if (params.dealSignal === "verified_only") {
+        whereClauses.push(`p.deal_label IN ('Lowest in 90 days', 'Real deal')`);
+      }
+
+      if (params.inStockOnly) {
+        whereClauses.push(`p.in_stock = TRUE`);
+      }
+
+      const whereSql = whereClauses.join(" AND ");
+
+      let orderBySql = `p.deal_score DESC, p.pct_below_median DESC, p.id ASC`;
+      switch (params.sort) {
+        case "discount_desc":
+          orderBySql = `p.pct_below_median DESC, p.deal_score DESC, p.id ASC`;
+          break;
+        case "price_asc":
+          orderBySql = `p.current_price_cents ASC, p.deal_score DESC, p.id ASC`;
+          break;
+        case "price_desc":
+          orderBySql = `p.current_price_cents DESC, p.deal_score DESC, p.id ASC`;
+          break;
+        case "newest_drop":
+          orderBySql = `CASE WHEN p.last_price_change_cents < 0 THEN p.last_price_change_at ELSE NULL END DESC NULLS LAST, p.deal_score DESC`;
+          break;
+        case "score_desc":
+        default:
+          orderBySql = q
+            ? `${searchRankExpr} DESC, p.deal_score DESC, p.pct_below_median DESC`
+            : `p.deal_score DESC, p.pct_below_median DESC, p.id ASC`;
+          break;
+      }
+
+      const limitRef = `$${bindValues.length + 1}`;
+      const offsetRef = `$${bindValues.length + 2}`;
+
+      // Run paginated page query, filtered total count, market aggregates, active promos, and active sale events in parallel
+      const [
+        pageRows,
+        countRows,
+        summaryRows,
+        brandAggRows,
+        categoryAggRows,
+        sizeRows,
+        promoRows,
+        saleEventRows,
+      ] = await Promise.all([
+        sql.unsafe(
+          `SELECT p.* FROM products p WHERE ${whereSql} ORDER BY ${orderBySql} LIMIT ${limitRef} OFFSET ${offsetRef}`,
+          [...bindValues, pageSize, offset] as never[]
+        ),
+        sql.unsafe(
+          `SELECT count(*)::int AS total FROM products p WHERE ${whereSql}`,
+          bindValues as never[]
+        ),
+        sql`
+          SELECT
+            count(*) FILTER (WHERE classification_status IN ('classified', 'manual'))::int AS total_catalog,
+            count(*) FILTER (WHERE classification_status = 'unclassified')::int AS unclassified_count,
+            count(*) FILTER (WHERE classification_status IN ('classified', 'manual') AND data_source = 'crawler')::int AS live_count,
+            count(*) FILTER (WHERE classification_status IN ('classified', 'manual') AND data_source = 'demo')::int AS demo_count,
+            count(*) FILTER (WHERE classification_status IN ('classified', 'manual') AND deal_label IN ('Lowest in 90 days', 'Real deal'))::int AS verified_deals,
+            count(*) FILTER (WHERE classification_status IN ('classified', 'manual') AND deal_label = 'Lowest in 90 days')::int AS lowest_90d,
+            COALESCE(
+              ROUND(
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY pct_below_median)
+                FILTER (WHERE classification_status IN ('classified', 'manual') AND deal_label IN ('Lowest in 90 days', 'Real deal') AND pct_below_median > 0)
+              ),
+              0
+            )::int AS med_savings,
+            MAX(last_checked_at) AS last_checked_at
+          FROM products
+        `,
+        sql`
+          SELECT
+            brand_slug,
+            count(*)::int AS total_count,
+            count(*) FILTER (WHERE deal_label IN ('Lowest in 90 days', 'Real deal'))::int AS active_deals,
+            COALESCE(
+              ROUND(AVG(pct_below_median) FILTER (WHERE deal_label IN ('Lowest in 90 days', 'Real deal') AND pct_below_median > 0)),
+              0
+            )::int AS avg_below_median,
+            COALESCE(MAX(deal_score), 0)::int AS top_score
+          FROM products
+          WHERE classification_status IN ('classified', 'manual')
+          GROUP BY brand_slug
+        `,
+        sql`
+          SELECT category, count(*)::int AS cnt
+          FROM products
+          WHERE classification_status IN ('classified', 'manual') AND category IS NOT NULL
+          GROUP BY category
+        `,
+        sql`
+          SELECT DISTINCT s.val AS size
+          FROM products p, LATERAL jsonb_array_elements_text(p.sizes) AS s(val)
+          WHERE p.classification_status IN ('classified', 'manual')
+          ORDER BY s.val
+          LIMIT 80
+        `,
+        sql`
+          SELECT id, brand_slug, description, code, percent_off, amount_off_cents, min_spend_cents, applies_to, has_exclusions, starts_at, ends_at, source_url
+          FROM brand_promos
+          WHERE active = TRUE AND starts_at <= NOW() AND ends_at >= NOW()
+          ORDER BY verified_at DESC
+        `,
+        sql`
+          SELECT id, slug, name, brand_slug, starts_at, ends_at, typical_discount_note
+          FROM sale_events
+          WHERE starts_at <= NOW() AND ends_at >= NOW()
+          ORDER BY starts_at DESC
+        `,
+      ]);
+
+      // Fetch snapshots ONLY for the current page's product IDs (24-48 IDs instead of all 6,589!)
+      const pageProductIds = pageRows.map((r) => String(r.id));
+      const snapMap = new Map<string, ProductFeedItem["sparkline"]>();
+      if (pageProductIds.length > 0) {
+        const pageSnapshots = await sql`
+          SELECT product_id, price_cents, original_price_cents, compare_at_gap_pct, in_stock, captured_at
+          FROM price_snapshots
+          WHERE product_id = ANY(${pageProductIds}::text[])
+          ORDER BY captured_at ASC
+        `;
+        for (const s of pageSnapshots) {
+          const pid = String(s.product_id);
+          const list = snapMap.get(pid) ?? [];
+          list.push({
+            priceCents: Number(s.price_cents),
+            originalPriceCents: Number(s.original_price_cents),
+            compareAtGapPct:
+              s.compare_at_gap_pct !== null && s.compare_at_gap_pct !== undefined
+                ? Number(s.compare_at_gap_pct)
+                : null,
+            inStock: Boolean(s.in_stock),
+            capturedAt: new Date(String(s.captured_at)).toISOString(),
+          });
+          snapMap.set(pid, list);
+        }
+      }
+
+      const activePromosByBrand: Record<string, ActiveBrandPromo> = {};
+      for (const pr of promoRows) {
+        const bSlug = String(pr.brand_slug);
+        if (!activePromosByBrand[bSlug]) {
+          activePromosByBrand[bSlug] = {
+            id: Number(pr.id),
+            brandSlug: bSlug,
+            description: String(pr.description),
+            code: pr.code ? String(pr.code) : null,
+            percentOff: pr.percent_off !== null ? Number(pr.percent_off) : null,
+            amountOffCents: pr.amount_off_cents !== null ? Number(pr.amount_off_cents) : null,
+            minSpendCents: pr.min_spend_cents !== null ? Number(pr.min_spend_cents) : null,
+            appliesTo: String(pr.applies_to ?? "Sitewide"),
+            hasExclusions: Boolean(pr.has_exclusions),
+            startsAt: new Date(String(pr.starts_at)).toISOString(),
+            endsAt: new Date(String(pr.ends_at)).toISOString(),
+            sourceUrl: pr.source_url ? String(pr.source_url) : null,
+          };
+        }
+      }
+
+      const activeSaleEvents: ActiveSaleEvent[] = saleEventRows.map((ev) => ({
+        id: Number(ev.id),
+        slug: String(ev.slug),
+        name: String(ev.name),
+        brandSlug: ev.brand_slug ? String(ev.brand_slug) : null,
+        startsAt: new Date(String(ev.starts_at)).toISOString(),
+        endsAt: new Date(String(ev.ends_at)).toISOString(),
+        typicalDiscountNote: String(ev.typical_discount_note ?? ""),
+      }));
+
+      const items = pageRows.map((row) =>
+        mapPgProductRow(row, snapMap, activePromosByBrand, activeSaleEvents)
+      );
+
+      const summary = summaryRows[0];
+      const brandAggMap = new Map(
+        brandAggRows.map((r) => [String(r.brand_slug), r])
+      );
+      const brandCounts: Record<string, number> = {};
+      const brandStrip: BrandCodeStat[] = BRANDS.map((brand) => {
+        const agg = brandAggMap.get(brand.slug);
+        brandCounts[brand.slug] = Number(agg?.total_count ?? 0);
         return {
-          id: row.id,
-          slug: row.slug,
-          brandSlug: row.brand_slug,
-          brandName: brand?.name ?? row.brand_slug,
-          brandCode: brand?.code ?? row.brand_slug.slice(0, 4).toUpperCase(),
-          brandSwatchHex: brand?.swatchHex ?? "#1B365D",
-          name: row.name,
-          dataSource: row.data_source === "demo" ? "demo" : "crawler",
-          category: row.category,
-          subcategory: row.subcategory,
-          occasions: Array.isArray(row.occasions) ? row.occasions : [],
-          colors: Array.isArray(row.colors) ? row.colors : [],
-          sizes: Array.isArray(row.sizes) ? row.sizes : [],
-          matchedRuleId: row.matched_rule_id,
-          currentPriceCents: Number(row.current_price_cents),
-          originalPriceCents: Number(row.original_price_cents),
-          currency: row.currency,
-          productUrl: row.product_url,
-          imageUrl: row.image_url,
-          inStock: Boolean(row.in_stock),
-          dataNote: row.data_note ?? null,
-          lastCheckedAt: new Date(row.last_checked_at).toISOString(),
-          median30dCents: Number(row.median_30d_cents),
-          median90dCents: Number(row.median_90d_cents),
-          low90dCents: Number(row.low_90d_cents),
-          allTimeLowCents: Number(row.all_time_low_cents),
-          timesAtOrBelowCurrent: Number(row.times_at_or_below_current),
-          lastPriceChangeCents: Number(row.last_price_change_cents),
-          lastPriceChangeAt: row.last_price_change_at
-            ? new Date(row.last_price_change_at).toISOString()
-            : null,
-          pctBelowMedian: Number(row.pct_below_median),
-          pctBelowOriginal: Number(row.pct_below_original),
-          historyDays: Number(row.history_days),
-          dealLabel: row.deal_label,
-          dealScore: Number(row.deal_score),
-          dealScoreBreakdown: row.deal_score_breakdown,
-          dealBlurb: row.deal_blurb,
-          sparkline: snapMap.get(row.id) ?? [],
+          slug: brand.slug,
+          name: brand.name,
+          brandCode: brand.code,
+          swatchHex: brand.swatchHex,
+          activeDeals: Number(agg?.active_deals ?? 0),
+          avgBelowMedianPct: Number(agg?.avg_below_median ?? 0),
+          topDealScore: Number(agg?.top_score ?? 0),
         };
       });
 
-      const liveCrawledCount = mapped.filter((i) => i.dataSource === "crawler").length;
-      const demoSeededCount = mapped.filter((i) => i.dataSource === "demo").length;
-      const statsBundle = buildStripAndStats(mapped);
-      const filtered = filterAndSortItems(mapped, params, Boolean(q));
-      const start = (page - 1) * pageSize;
+      const categoryCounts: Record<string, number> = {};
+      for (const c of categoryAggRows) {
+        categoryCounts[String(c.category)] = Number(c.cnt);
+      }
+
+      const demoCount = Number(summary?.demo_count ?? 0);
+      const liveCount = Number(summary?.live_count ?? 0);
 
       return {
         source: "postgres",
-        isDemoData: demoSeededCount > 0,
-        liveCrawledCount,
-        demoSeededCount,
-        totalMatched: filtered.length,
-        totalCatalog: mapped.length,
-        unclassifiedCount: Number(unclassifiedCountRaw ?? 0),
+        isDemoData: demoCount > 0,
+        liveCrawledCount: liveCount,
+        demoSeededCount: demoCount,
+        totalMatched: Number(countRows[0]?.total ?? 0),
+        totalCatalog: Number(summary?.total_catalog ?? 0),
+        unclassifiedCount: Number(summary?.unclassified_count ?? 0),
         page,
         pageSize,
-        items: filtered.slice(start, start + pageSize),
-        ...statsBundle,
+        queryDurationMs: Date.now() - t0,
+        activeSaleEvents,
+        activePromosByBrand,
+        items,
+        marketStats: {
+          verifiedDealsCount: Number(summary?.verified_deals ?? 0),
+          lowest90dCount: Number(summary?.lowest_90d ?? 0),
+          medianVerifiedSavingsPct: Number(summary?.med_savings ?? 0),
+          brandsTracked: BRANDS.length,
+          lastCheckedAt: summary?.last_checked_at
+            ? new Date(String(summary.last_checked_at)).toISOString()
+            : new Date().toISOString(),
+        },
+        brandStrip,
+        facets: {
+          brandCounts,
+          categoryCounts,
+          availableSizes: sizeRows.map((r) => String(r.size)),
+        },
       };
     } catch (err) {
       if (process.env.NODE_ENV === "production" || !isDemoModeEnabled()) {
-        throw new Error(
-          `[Tape & Tailor] PostgreSQL query failed: ${(err as Error).message}`
-        );
+        throw new Error(`[Tape & Tailor] PostgreSQL query failed: ${(err as Error).message}`);
       }
     }
   }
 
+  // Fallback path (strictly gated behind DEMO_MODE=true)
   assertDemoFallbackAllowed("PostgreSQL unavailable");
   const allRaw = getFallbackCatalog();
   const classified = allRaw
     .filter((i) => i.classificationStatus === "classified")
     .map(toFeedItem);
-  const unclassifiedCount = allRaw.filter(
-    (i) => i.classificationStatus === "unclassified"
-  ).length;
-  const statsBundle = buildStripAndStats(classified);
-  const filtered = filterAndSortItems(classified, params, false);
-  const start = (page - 1) * pageSize;
+  const unclassifiedCount = allRaw.filter((i) => i.classificationStatus === "unclassified").length;
+
+  let filtered = classified;
+  if (params.q?.trim()) {
+    const q = params.q.trim().toLowerCase();
+    const byId = new Map(allRaw.map((r) => [r.id, r]));
+    filtered = filtered.filter((item) => {
+      const rec = byId.get(item.id);
+      return rec ? matchesSearchFallback(rec, q) : item.name.toLowerCase().includes(q);
+    });
+  }
+  if (params.brands?.length) {
+    const set = new Set(params.brands);
+    filtered = filtered.filter((i) => set.has(i.brandSlug));
+  }
+  if (params.categories?.length) {
+    const set = new Set(params.categories);
+    filtered = filtered.filter((i) => i.category && set.has(i.category));
+  }
+  if (params.occasions?.length) {
+    const set = new Set(params.occasions);
+    filtered = filtered.filter((i) => i.occasions.some((o) => set.has(o)));
+  }
+  if (params.size?.trim()) {
+    const target = params.size.trim().toUpperCase();
+    filtered = filtered.filter((i) => i.sizes.some((s) => s.toUpperCase() === target));
+  }
+  if (typeof params.minPrice === "number") {
+    filtered = filtered.filter((i) => i.currentPriceCents >= params.minPrice! * 100);
+  }
+  if (typeof params.maxPrice === "number") {
+    filtered = filtered.filter((i) => i.currentPriceCents <= params.maxPrice! * 100);
+  }
+  if (typeof params.minDiscountVsMedian === "number" && params.minDiscountVsMedian > 0) {
+    filtered = filtered.filter((i) => i.pctBelowMedian >= params.minDiscountVsMedian!);
+  }
+  if (params.dealSignal === "lowest_90d") {
+    filtered = filtered.filter((i) => i.dealLabel === "Lowest in 90 days");
+  } else if (params.dealSignal === "real_deal") {
+    filtered = filtered.filter((i) => i.dealLabel === "Real deal");
+  } else if (params.dealSignal === "verified_only") {
+    filtered = filtered.filter(
+      (i) => i.dealLabel === "Lowest in 90 days" || i.dealLabel === "Real deal"
+    );
+  }
+  if (params.inStockOnly) {
+    filtered = filtered.filter((i) => i.inStock);
+  }
+
+  filtered = [...filtered].sort((a, b) => {
+    switch (params.sort) {
+      case "discount_desc":
+        return b.pctBelowMedian - a.pctBelowMedian || b.dealScore - a.dealScore;
+      case "price_asc":
+        return a.currentPriceCents - b.currentPriceCents;
+      case "price_desc":
+        return b.currentPriceCents - a.currentPriceCents;
+      case "newest_drop": {
+        const at = a.lastPriceChangeCents < 0 && a.lastPriceChangeAt ? new Date(a.lastPriceChangeAt).getTime() : 0;
+        const bt = b.lastPriceChangeCents < 0 && b.lastPriceChangeAt ? new Date(b.lastPriceChangeAt).getTime() : 0;
+        return bt - at || b.dealScore - a.dealScore;
+      }
+      default:
+        return b.dealScore - a.dealScore || b.pctBelowMedian - a.pctBelowMedian;
+    }
+  });
+
+  const verified = classified.filter(
+    (i) => i.dealLabel === "Lowest in 90 days" || i.dealLabel === "Real deal"
+  );
+  const lowest90d = classified.filter((i) => i.dealLabel === "Lowest in 90 days");
+  const brandCounts: Record<string, number> = {};
+  const categoryCounts: Record<string, number> = {};
+  const sizeSet = new Set<string>();
+  for (const item of classified) {
+    brandCounts[item.brandSlug] = (brandCounts[item.brandSlug] ?? 0) + 1;
+    if (item.category) categoryCounts[item.category] = (categoryCounts[item.category] ?? 0) + 1;
+    for (const s of item.sizes) sizeSet.add(s);
+  }
 
   return {
     source: "demo-fallback",
@@ -526,9 +685,167 @@ export async function queryCatalogFeed(
     unclassifiedCount,
     page,
     pageSize,
-    items: filtered.slice(start, start + pageSize),
-    ...statsBundle,
+    queryDurationMs: Date.now() - t0,
+    activeSaleEvents: [],
+    activePromosByBrand: {},
+    items: filtered.slice(offset, offset + pageSize),
+    marketStats: {
+      verifiedDealsCount: verified.length,
+      lowest90dCount: lowest90d.length,
+      medianVerifiedSavingsPct: 24,
+      brandsTracked: BRANDS.length,
+      lastCheckedAt: new Date().toISOString(),
+    },
+    brandStrip: BRANDS.map((brand) => ({
+      slug: brand.slug,
+      name: brand.name,
+      brandCode: brand.code,
+      swatchHex: brand.swatchHex,
+      activeDeals: verified.filter((v) => v.brandSlug === brand.slug).length,
+      avgBelowMedianPct: 0,
+      topDealScore: 0,
+    })),
+    facets: {
+      brandCounts,
+      categoryCounts,
+      availableSizes: Array.from(sizeSet).sort(),
+    },
   };
+}
+
+export async function getProductDetailBySlug(slug: string): Promise<ProductFeedItem | null> {
+  const sql = getSqlClient();
+  if (sql) {
+    const rows = await sql`SELECT * FROM products WHERE slug = ${slug} LIMIT 1`;
+    if (!rows[0]) return null;
+    const row = rows[0];
+    const [snaps, promos, events] = await Promise.all([
+      sql`
+        SELECT product_id, price_cents, original_price_cents, compare_at_gap_pct, in_stock, captured_at
+        FROM price_snapshots
+        WHERE product_id = ${String(row.id)}
+        ORDER BY captured_at ASC
+      `,
+      sql`
+        SELECT id, brand_slug, description, code, percent_off, amount_off_cents, min_spend_cents, applies_to, has_exclusions, starts_at, ends_at, source_url
+        FROM brand_promos
+        WHERE brand_slug = ${String(row.brand_slug)} AND active = TRUE AND starts_at <= NOW() AND ends_at >= NOW()
+        ORDER BY verified_at DESC
+        LIMIT 1
+      `,
+      sql`
+        SELECT id, slug, name, brand_slug, starts_at, ends_at, typical_discount_note
+        FROM sale_events
+        WHERE (brand_slug IS NULL OR brand_slug = ${String(row.brand_slug)})
+          AND starts_at <= NOW() AND ends_at >= NOW()
+        ORDER BY starts_at DESC
+      `,
+    ]);
+
+    const snapMap = new Map<string, ProductFeedItem["sparkline"]>();
+    snapMap.set(
+      String(row.id),
+      snaps.map((s) => ({
+        priceCents: Number(s.price_cents),
+        originalPriceCents: Number(s.original_price_cents),
+        compareAtGapPct:
+          s.compare_at_gap_pct !== null && s.compare_at_gap_pct !== undefined
+            ? Number(s.compare_at_gap_pct)
+            : null,
+        inStock: Boolean(s.in_stock),
+        capturedAt: new Date(String(s.captured_at)).toISOString(),
+      }))
+    );
+
+    const promosByBrand: Record<string, ActiveBrandPromo> = {};
+    if (promos[0]) {
+      const pr = promos[0];
+      promosByBrand[String(row.brand_slug)] = {
+        id: Number(pr.id),
+        brandSlug: String(pr.brand_slug),
+        description: String(pr.description),
+        code: pr.code ? String(pr.code) : null,
+        percentOff: pr.percent_off !== null ? Number(pr.percent_off) : null,
+        amountOffCents: pr.amount_off_cents !== null ? Number(pr.amount_off_cents) : null,
+        minSpendCents: pr.min_spend_cents !== null ? Number(pr.min_spend_cents) : null,
+        appliesTo: String(pr.applies_to ?? "Sitewide"),
+        hasExclusions: Boolean(pr.has_exclusions),
+        startsAt: new Date(String(pr.starts_at)).toISOString(),
+        endsAt: new Date(String(pr.ends_at)).toISOString(),
+        sourceUrl: pr.source_url ? String(pr.source_url) : null,
+      };
+    }
+
+    const activeEvents: ActiveSaleEvent[] = events.map((ev) => ({
+      id: Number(ev.id),
+      slug: String(ev.slug),
+      name: String(ev.name),
+      brandSlug: ev.brand_slug ? String(ev.brand_slug) : null,
+      startsAt: new Date(String(ev.starts_at)).toISOString(),
+      endsAt: new Date(String(ev.ends_at)).toISOString(),
+      typicalDiscountNote: String(ev.typical_discount_note ?? ""),
+    }));
+
+    return mapPgProductRow(row, snapMap, promosByBrand, activeEvents);
+  }
+
+  assertDemoFallbackAllowed("DATABASE_URL required for /p/[slug]");
+  const found = getFallbackCatalog().find((p) => p.slug === slug);
+  return found ? toFeedItem(found) : null;
+}
+
+export async function getProductsByIds(ids: string[]): Promise<ProductFeedItem[]> {
+  if (ids.length === 0) return [];
+  const sql = getSqlClient();
+  if (sql) {
+    const [rows, promoRows, saleEventRows] = await Promise.all([
+      sql`SELECT * FROM products WHERE id = ANY(${ids.slice(0, 50)}::text[])`,
+      sql`
+        SELECT id, brand_slug, description, code, percent_off, amount_off_cents, min_spend_cents, applies_to, has_exclusions, starts_at, ends_at, source_url
+        FROM brand_promos
+        WHERE active = TRUE AND starts_at <= NOW() AND ends_at >= NOW()
+      `,
+      sql`
+        SELECT id, slug, name, brand_slug, starts_at, ends_at, typical_discount_note
+        FROM sale_events
+        WHERE starts_at <= NOW() AND ends_at >= NOW()
+      `,
+    ]);
+    const promosByBrand: Record<string, ActiveBrandPromo> = {};
+    for (const pr of promoRows) {
+      promosByBrand[String(pr.brand_slug)] = {
+        id: Number(pr.id),
+        brandSlug: String(pr.brand_slug),
+        description: String(pr.description),
+        code: pr.code ? String(pr.code) : null,
+        percentOff: pr.percent_off !== null ? Number(pr.percent_off) : null,
+        amountOffCents: pr.amount_off_cents !== null ? Number(pr.amount_off_cents) : null,
+        minSpendCents: pr.min_spend_cents !== null ? Number(pr.min_spend_cents) : null,
+        appliesTo: String(pr.applies_to ?? "Sitewide"),
+        hasExclusions: Boolean(pr.has_exclusions),
+        startsAt: new Date(String(pr.starts_at)).toISOString(),
+        endsAt: new Date(String(pr.ends_at)).toISOString(),
+        sourceUrl: pr.source_url ? String(pr.source_url) : null,
+      };
+    }
+    const events: ActiveSaleEvent[] = saleEventRows.map((ev) => ({
+      id: Number(ev.id),
+      slug: String(ev.slug),
+      name: String(ev.name),
+      brandSlug: ev.brand_slug ? String(ev.brand_slug) : null,
+      startsAt: new Date(String(ev.starts_at)).toISOString(),
+      endsAt: new Date(String(ev.ends_at)).toISOString(),
+      typicalDiscountNote: String(ev.typical_discount_note ?? ""),
+    }));
+    const snapMap = new Map<string, ProductFeedItem["sparkline"]>();
+    return rows.map((r) => mapPgProductRow(r, snapMap, promosByBrand, events));
+  }
+
+  assertDemoFallbackAllowed("DATABASE_URL required for watchlist lookup");
+  const set = new Set(ids);
+  return getFallbackCatalog()
+    .filter((p) => set.has(p.id))
+    .map(toFeedItem);
 }
 
 export async function findProductForRedirect(id: string): Promise<{
@@ -547,9 +864,9 @@ export async function findProductForRedirect(id: string): Promise<{
     `;
     if (rows[0]) {
       return {
-        id: rows[0].id,
-        brandSlug: rows[0].brand_slug,
-        productUrl: rows[0].product_url,
+        id: String(rows[0].id),
+        brandSlug: String(rows[0].brand_slug),
+        productUrl: String(rows[0].product_url),
         inDatabase: true,
       };
     }

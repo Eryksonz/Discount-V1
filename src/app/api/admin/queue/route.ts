@@ -21,51 +21,64 @@ export async function GET() {
     );
   }
 
-  const [unclassified, outOfScope, flagged, runs, brandRows, customRules, clickCountRows] =
-    await Promise.all([
-      db
-        .select()
-        .from(schema.products)
-        .where(eq(schema.products.classificationStatus, "unclassified"))
-        .orderBy(desc(schema.products.lastCheckedAt))
-        .limit(100),
-      db
-        .select()
-        .from(schema.products)
-        .where(eq(schema.products.classificationStatus, "out_of_scope"))
-        .orderBy(desc(schema.products.lastCheckedAt))
-        .limit(100),
-      db
-        .select()
-        .from(schema.flaggedUpdates)
-        .where(eq(schema.flaggedUpdates.status, "pending"))
-        .orderBy(desc(schema.flaggedUpdates.createdAt))
-        .limit(100),
-      db
-        .select({
-          id: schema.crawlRuns.id,
-          brandId: schema.crawlRuns.brandId,
-          mode: schema.crawlRuns.mode,
-          status: schema.crawlRuns.status,
-          startedAt: schema.crawlRuns.startedAt,
-          durationMs: schema.crawlRuns.durationMs,
-          productsSeen: schema.crawlRuns.productsSeen,
-          priceChanges: schema.crawlRuns.priceChanges,
-          newProducts: schema.crawlRuns.newProducts,
-          quarantinedCount: schema.crawlRuns.quarantinedCount,
-          errorsCount: schema.crawlRuns.errorsCount,
-          errorSummary: schema.crawlRuns.errorSummary,
-        })
-        .from(schema.crawlRuns)
-        .orderBy(desc(schema.crawlRuns.startedAt))
-        .limit(30),
-      db.select().from(schema.brands).orderBy(schema.brands.name),
-      db
-        .select()
-        .from(schema.customClassificationRules)
-        .orderBy(desc(schema.customClassificationRules.createdAt)),
-      db.select({ id: schema.outboundClicks.id }).from(schema.outboundClicks).limit(1000),
-    ]);
+  const [
+    unclassified,
+    outOfScope,
+    flagged,
+    runs,
+    brandRows,
+    customRules,
+    clickCountRows,
+    promos,
+    saleEvents,
+    activeAlerts,
+  ] = await Promise.all([
+    db
+      .select()
+      .from(schema.products)
+      .where(eq(schema.products.classificationStatus, "unclassified"))
+      .orderBy(desc(schema.products.lastCheckedAt))
+      .limit(100),
+    db
+      .select()
+      .from(schema.products)
+      .where(eq(schema.products.classificationStatus, "out_of_scope"))
+      .orderBy(desc(schema.products.lastCheckedAt))
+      .limit(100),
+    db
+      .select()
+      .from(schema.flaggedUpdates)
+      .where(eq(schema.flaggedUpdates.status, "pending"))
+      .orderBy(desc(schema.flaggedUpdates.createdAt))
+      .limit(100),
+    db
+      .select({
+        id: schema.crawlRuns.id,
+        brandId: schema.crawlRuns.brandId,
+        mode: schema.crawlRuns.mode,
+        status: schema.crawlRuns.status,
+        startedAt: schema.crawlRuns.startedAt,
+        durationMs: schema.crawlRuns.durationMs,
+        productsSeen: schema.crawlRuns.productsSeen,
+        priceChanges: schema.crawlRuns.priceChanges,
+        newProducts: schema.crawlRuns.newProducts,
+        quarantinedCount: schema.crawlRuns.quarantinedCount,
+        errorsCount: schema.crawlRuns.errorsCount,
+        errorSummary: schema.crawlRuns.errorSummary,
+      })
+      .from(schema.crawlRuns)
+      .orderBy(desc(schema.crawlRuns.startedAt))
+      .limit(30),
+    db.select().from(schema.brands).orderBy(schema.brands.name),
+    db
+      .select()
+      .from(schema.customClassificationRules)
+      .orderBy(desc(schema.customClassificationRules.createdAt)),
+    db.select({ id: schema.outboundClicks.id }).from(schema.outboundClicks).limit(1000),
+    db.select().from(schema.brandPromos).orderBy(desc(schema.brandPromos.createdAt)).limit(100),
+    db.select().from(schema.saleEvents).orderBy(desc(schema.saleEvents.startsAt)).limit(50),
+    db.select({ id: schema.alerts.id }).from(schema.alerts).where(eq(schema.alerts.active, true)),
+  ]);
 
   const brandNameById = Object.fromEntries(brandRows.map((b) => [b.id, b.name]));
 
@@ -76,6 +89,9 @@ export async function GET() {
     crawlRuns: runs.map((r) => ({ ...r, brandName: brandNameById[r.brandId] ?? `#${r.brandId}` })),
     brands: brandRows,
     customRules,
+    promos,
+    saleEvents,
+    activeAlertsCount: activeAlerts.length,
     outboundClicksSampled: clickCountRows.length,
   });
 }
@@ -208,6 +224,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  if (action === "set_crawl_frequency") {
+    const brandId = Number(body.brandId);
+    const freq = String(body.crawlFrequency ?? "daily");
+    if (!Number.isFinite(brandId) || !["daily", "high_freq", "paused"].includes(freq)) {
+      return NextResponse.json(
+        { error: "Valid brandId and crawlFrequency (daily|high_freq|paused) required." },
+        { status: 400 }
+      );
+    }
+    await db
+      .update(schema.brands)
+      .set({
+        crawlFrequency: freq,
+        highFrequencyMode: freq === "high_freq",
+      })
+      .where(eq(schema.brands.id, brandId));
+    return NextResponse.json({ ok: true });
+  }
+
   if (action === "toggle_high_freq") {
     const brandId = Number(body.brandId);
     const enabled = Boolean(body.enabled);
@@ -216,9 +251,205 @@ export async function POST(request: NextRequest) {
     }
     await db
       .update(schema.brands)
-      .set({ highFrequencyMode: enabled })
+      .set({
+        highFrequencyMode: enabled,
+        crawlFrequency: enabled ? "high_freq" : "daily",
+      })
       .where(eq(schema.brands.id, brandId));
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === "create_promo" || action === "update_promo") {
+    const brandId = Number(body.brandId);
+    const brandSlug = String(body.brandSlug ?? "").trim();
+    const description = String(body.description ?? "").trim();
+    const code = body.code ? String(body.code).trim().toUpperCase() : null;
+    const percentOff =
+      body.percentOff !== null && body.percentOff !== undefined && String(body.percentOff) !== ""
+        ? Number(body.percentOff)
+        : null;
+    const amountOffCents =
+      body.amountOffDollars !== null &&
+      body.amountOffDollars !== undefined &&
+      String(body.amountOffDollars) !== ""
+        ? Math.round(Number(body.amountOffDollars) * 100)
+        : null;
+    const minSpendCents =
+      body.minSpendDollars !== null &&
+      body.minSpendDollars !== undefined &&
+      String(body.minSpendDollars) !== ""
+        ? Math.round(Number(body.minSpendDollars) * 100)
+        : null;
+    const appliesTo = String(body.appliesTo ?? "Sitewide").trim() || "Sitewide";
+    const hasExclusions = Boolean(body.hasExclusions);
+    const startsAt = new Date(String(body.startsAt ?? new Date().toISOString()));
+    const endsAt = new Date(String(body.endsAt ?? new Date(Date.now() + 3 * 86_400_000).toISOString()));
+    const sourceUrl = body.sourceUrl ? String(body.sourceUrl).trim() : null;
+
+    if (!Number.isFinite(brandId) || !brandSlug || !description) {
+      return NextResponse.json(
+        { error: "brandId, brandSlug, and description are required." },
+        { status: 400 }
+      );
+    }
+
+    if (action === "update_promo") {
+      const id = Number(body.id);
+      if (!Number.isFinite(id)) {
+        return NextResponse.json({ error: "Promo id required for update." }, { status: 400 });
+      }
+      await db
+        .update(schema.brandPromos)
+        .set({
+          description,
+          code,
+          percentOff,
+          amountOffCents,
+          minSpendCents,
+          appliesTo,
+          hasExclusions,
+          startsAt,
+          endsAt,
+          sourceUrl,
+          verifiedAt: new Date(),
+        })
+        .where(eq(schema.brandPromos.id, id));
+      return NextResponse.json({ ok: true });
+    }
+
+    await db.insert(schema.brandPromos).values({
+      brandId,
+      brandSlug,
+      description,
+      code,
+      percentOff,
+      amountOffCents,
+      minSpendCents,
+      appliesTo,
+      hasExclusions,
+      startsAt,
+      endsAt,
+      sourceUrl,
+      verifiedAt: new Date(),
+      active: true,
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "expire_promo") {
+    const id = Number(body.id);
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: "Valid promo id required." }, { status: 400 });
+    }
+    await db
+      .update(schema.brandPromos)
+      .set({ active: false, endsAt: new Date() })
+      .where(eq(schema.brandPromos.id, id));
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "create_sale_event") {
+    const name = String(body.name ?? "").trim();
+    const slug =
+      String(body.slug ?? "").trim() ||
+      `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now()}`;
+    const brandSlug = body.brandSlug ? String(body.brandSlug).trim() : null;
+    const startsAt = new Date(String(body.startsAt ?? new Date().toISOString()));
+    const endsAt = new Date(String(body.endsAt ?? new Date(Date.now() + 3 * 86_400_000).toISOString()));
+    const typicalDiscountNote =
+      String(body.typicalDiscountNote ?? "").trim() ||
+      "Sitewide or tiered promotional event.";
+    const triggersHighFrequency = body.triggersHighFrequency !== false;
+
+    if (!name) {
+      return NextResponse.json({ error: "Sale event name is required." }, { status: 400 });
+    }
+
+    await db
+      .insert(schema.saleEvents)
+      .values({
+        slug,
+        name,
+        brandSlug: brandSlug || null,
+        startsAt,
+        endsAt,
+        typicalDiscountNote,
+        triggersHighFrequency,
+      })
+      .onConflictDoUpdate({
+        target: schema.saleEvents.slug,
+        set: {
+          name,
+          brandSlug: brandSlug || null,
+          startsAt,
+          endsAt,
+          typicalDiscountNote,
+          triggersHighFrequency,
+        },
+      });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "expire_sale_event") {
+    const id = Number(body.id);
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: "Valid sale event id required." }, { status: 400 });
+    }
+    await db
+      .update(schema.saleEvents)
+      .set({ endsAt: new Date(Date.now() - 60_000) })
+      .where(eq(schema.saleEvents.id, id));
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "crawl_now") {
+    const brandSlug = body.brandSlug ? String(body.brandSlug).trim() : "";
+    const ghToken = process.env.GITHUB_TOKEN?.trim();
+    const ghRepo = process.env.GITHUB_REPO?.trim() || "Eryksonz/Discount-V1";
+
+    if (!ghToken) {
+      return NextResponse.json(
+        {
+          error:
+            "GITHUB_TOKEN is not set on this server. Set GITHUB_TOKEN (with actions:write) in Vercel/env, or trigger 'Baseline Daily Crawl' manually in GitHub → Actions.",
+        },
+        { status: 503 }
+      );
+    }
+
+    const res = await fetch(
+      `https://api.github.com/repos/${ghRepo}/actions/workflows/crawl-baseline.yml/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${ghToken}`,
+          Accept: "application/vnd.github+json",
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ref: "master",
+          inputs: {
+            brand: brandSlug,
+            mode: "manual",
+            max_products: "",
+          },
+        }),
+      }
+    );
+
+    if (!res.ok) {
+      const txt = await res.text();
+      return NextResponse.json(
+        { error: `GitHub Actions dispatch failed (${res.status}): ${txt.slice(0, 200)}` },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: `Dispatched full-catalog GitHub Actions crawl (${brandSlug || "all enabled brands"}).`,
+    });
   }
 
   return NextResponse.json({ error: "Unknown admin action." }, { status: 400 });

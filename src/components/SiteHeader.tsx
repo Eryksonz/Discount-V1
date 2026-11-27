@@ -31,24 +31,18 @@ export function SiteHeader({ source, isDemoData, unclassifiedCount }: SiteHeader
             >
               Deal Desk
             </Link>
-            <span
-              className="text-[#7A8490] cursor-not-allowed flex items-center gap-1"
-              title="Arriving in Phase 4"
+            <Link
+              href="/watchlist"
+              className="text-[#3E4C5E] hover:text-[#0F1D32] transition-colors"
             >
-              Interview Kits
-              <span className="font-mono text-[9px] uppercase px-1 py-0.5 rounded bg-[#EFEAE0] text-[#6B7684]">
-                P4
-              </span>
-            </span>
-            <span
-              className="text-[#7A8490] cursor-not-allowed flex items-center gap-1"
-              title="Arriving in Phase 4"
+              Watchlist
+            </Link>
+            <Link
+              href="/about"
+              className="text-[#3E4C5E] hover:text-[#0F1D32] transition-colors"
             >
-              Sale Calendar
-              <span className="font-mono text-[9px] uppercase px-1 py-0.5 rounded bg-[#EFEAE0] text-[#6B7684]">
-                P4
-              </span>
-            </span>
+              About
+            </Link>
             <Link
               href="/admin"
               className="text-[#3E4C5E] hover:text-[#0F1D32] transition-colors flex items-center gap-1"

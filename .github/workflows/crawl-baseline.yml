@@ -63,3 +63,11 @@ jobs:
           fi
           MODE="${{ github.event.inputs.mode || 'baseline' }}"
           npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $MAX_ARG
+
+      - name: Evaluate deduplicated price-drop alerts
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          ALERT_FROM_EMAIL: ${{ secrets.ALERT_FROM_EMAIL }}
+          NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
+        run: npx tsx crawler/check-alerts.ts

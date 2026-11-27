@@ -45,17 +45,47 @@ npm install
 npm run dev            # set DATABASE_URL in .env.local, or DEMO_MODE=true for demo preview
 ```
 
-### GitHub Actions Minutes Budget
-GitHub Free provides **2,000 Actions minutes/month** for private repositories (ubuntu-latest 1x multiplier):
+### Phase 3 (Product Detail Page, Watchlist, Resend Alerts, Promos & SQL Pagination)
+- **Product Detail Page (`/p/[slug]`):** Interactive Recharts 90-day step price chart with 90-day median and 90-day low overlays, complete snapshot history table (including `compare_at_gap_pct`), 4-component Deal Score breakdown, data-derived history summary, and direct `/go/[id]` CTA with affiliate disclosure.
+- **Watchlist (`/watchlist` & `/api/watchlist`):** Browser-saved watchlist hydrated with live Neon Postgres prices.
+- **Deduplicated Resend Alerts (`POST /api/alerts`, `GET /api/alerts/unsubscribe`, `crawler/check-alerts.ts`):** Notifies users at most once per price level (`last_notified_price_cents`), enforces the 21-day maturity gate on `% below median` alerts, includes `List-Unsubscribe` headers + CAN-SPAM one-click unsubscribe, and runs automatically after GitHub Actions crawls.
+- **Checkout Promos & Sale Events (`brand_promos`, `sale_events`, `product_sale_window_gaps`):** Managed in `/admin`; displayed separately on cards and `/p/[slug]` (never polluting `price_snapshots` or Deal Engine history); active sale events display a live banner and sitewide-sale comparison disclaimer.
+- **SQL-Level Filtering, Search & Pagination:** `/api/products` runs indexed `WHERE`, `tsvector` + `pg_trgm` search, `ORDER BY`, and `LIMIT`/`OFFSET` in SQL (24–48 items/page), loading `price_snapshots` only for the active page's IDs.
 
-| Workflow | Schedule | Typical Runtime / Run | Runs / Month | Est. Monthly Minutes |
-| --- | --- | --- | --- | --- |
-| `crawl-baseline.yml` (full catalog: Faherty ~2.7k + Bonobos ~3.9k SKUs) | Daily (`0 6 * * *`) | ~8–9 min (install + polite 1 req/2s pagination + batched Postgres upsert) | 30 | **240–270 min** |
-| `crawl-high-freq.yml` (opt-in idle: no active sale events / alerts) | Every 4h (`0 */4 * * *`) | ~0.5 min (checkout/npm cache + immediate DB check exit) | ~160 idle runs | **~80 min** |
-| `crawl-high-freq.yml` (opt-in active: e.g. 4 sale-event days/mo) | Every 4h during active windows | ~8.5 min | ~24 active runs | **~204 min** |
-| **Estimated Total (2 full-catalog pilot brands)** | | | | **~320–550 min / mo (~16–28% of Free tier)** |
+---
 
-Scaling to 8–10 non-blocked brands later adds roughly ~1–2 min per daily baseline run (~240–320 min/mo total), staying comfortably within the 2,000 min/month budget because high-frequency mode is strictly opt-in (`brands.high_frequency_mode`, active `sale_events`, or active user `alerts`).
+### Black Friday Week Crawl Schedule (Nov–Dec 2026 Baseline Capture)
+Manual `workflow_dispatch` crawls (from GitHub → Actions → **Baseline Daily Crawl**, or one-click **Crawl Now** in `/admin` when `GITHUB_TOKEN` is set) should be triggered on:
+1. **Thursday night (Nov 26, 2026)** — initial Black Friday week baseline (captured)
+2. **Friday midday (Nov 27, 2026)** — peak Black Friday snapshot
+3. **Saturday (Nov 28, 2026)** — Black Friday weekend hold/reversion check
+4. **Monday (Nov 30, 2026)** — Cyber Monday pricing & checkout promo capture
+5. **Mid-December (approx. Dec 14–16, 2026)** — post-sale baseline to separate true promotional drops from permanent compare-at pricing via `product_sale_window_gaps`.
+
+### GitHub Actions Minutes Budget (Measured Nov 26, 2026)
+GitHub Free provides **2,000 Actions minutes/month** for private repositories (`ubuntu-latest` 1x multiplier). Using real measured full-catalog crawl durations (**Faherty:** `27.7s` for 2,689 SKUs; **Bonobos:** `476.5s` / ~7.9 min for 3,899 SKUs with sub-page bisection; combined ~8.4 min + ~0.6 min runner setup ≈ **9.0 min/run**):
+
+| Workflow | Schedule | Measured Runtime / Run | Runs / Month | Est. Monthly Minutes |
+| --- | --- | --- | ---: | ---: |
+| `crawl-baseline.yml` (Faherty + Bonobos full catalog + alert check) | Daily (`0 6 * * *`) | **~9.0 min** | 30 | **~270 min** |
+| `crawl-high-freq.yml` (opt-in idle: 0 brands eligible) | Every 4h (`0 */4 * * *`) | ~0.5 min (fast DB check exit) | ~156 idle runs | **~78 min** |
+| `crawl-high-freq.yml` (opt-in active: e.g. 4 sale-event days/mo) | Every 4h during active windows | **~9.0 min** | ~24 active runs | **~216 min** |
+| **Estimated Total (Faherty + Bonobos)** | | | | **~564 min / mo (~28% of Free tier)** |
+
+**Scaling Design for Detail-Page Brands (Brooks Brothers & Vineyard Vines):**
+- Both Brooks Brothers (`sitemap_0-product.xml`: 2,414 URLs, 100% `<lastmod>`) and Vineyard Vines (`sitemap_0.xml`: 3,250 URLs, 100% `<lastmod>`) support direct JSON-LD without Playwright, but full page-by-page crawls take ~40–110 min at 1 req/2–2.5s.
+- To stay well inside GitHub Actions budgets, detail-page brands use **sitemap `<lastmod>` incremental crawling** (only fetching URLs whose `<lastmod>` advanced since the previous `crawl_runs.started_at`, typically 5–10% of catalog = **3–10 min/day**) plus **tiered frequency** (checking active sale items and alerted products every 4–24h, and rotating full-catalog sweeps weekly in sharded batches).
+
+### Affiliate Readiness Checklist
+Before applying to affiliate networks (Rakuten Advertising, Impact, CJ Affiliate, Awin, ShareASale):
+- [ ] Custom production domain configured on Vercel (HTTPS, clean DNS)
+- [x] Dedicated About page (`/about`) explaining methodology, independence, and mission
+- [x] Clear affiliate disclosure on every page with outbound links (`DealCard`, `/p/[slug]`, `SiteFooter`)
+- [x] Privacy Policy (`/privacy`) including CAN-SPAM email alert & one-click unsubscribe policy
+- [x] Terms of Use (`/terms`) including price-change disclaimer
+- [x] Explicit "not affiliated with, sponsored by, or endorsed by any of the brands listed" notice in both footer and `/terms`
+- [x] Outbound redirect `/go/[id]` locked down to allowlisted brand domains with click logging (`outbound_clicks`)
+- [ ] Populate verified live domain + real contact email in `NEXT_PUBLIC_SITE_URL`, `CRAWLER_CONTACT_EMAIL`, and Resend sending domain
 
 ### Git Pre-Commit Guard (`.githooks/pre-commit`)
 Enable the bundled pre-commit hook that blocks staging `.env*` files or secret patterns:
