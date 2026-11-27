@@ -21,12 +21,14 @@ export interface CrawlAdapterContext {
   http: import("./http-client").PoliteHttpClient;
   /** Optional ceiling per brand run so manual/CI checks stay bounded and polite */
   maxProducts?: number;
+  /** Optional 0-based start offset for splitting large forced passes across multiple runs */
+  offset?: number;
   /** Existing DB product states for hybrid sitemap incremental crawling */
   existingProducts?: ExistingProductCrawlState[];
   /** Watchlisted or active-alert product IDs prioritized for daily re-checks */
   priorityProductIds?: Set<string>;
-  /** Force re-fetch of every discovered sitemap URL regardless of freshness */
-  forceFull?: boolean;
+  /** Sale-week override: ignore 7-day freshness skip and re-fetch every in-stock product URL */
+  forceRefresh?: boolean;
 }
 
 export interface BrandAdapter {

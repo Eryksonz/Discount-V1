@@ -3,6 +3,7 @@ import {
   filterBrandSitemapUrls,
   parseSitemapXml,
   selectIncrementalUrls,
+  sliceUrlBatch,
   type ExistingProductCrawlState,
   type SitemapUrlEntry,
 } from "../sitemap";
@@ -115,11 +116,58 @@ describe("Sitemap discovery & hybrid incremental URL selection", () => {
     expect(res.stats).toEqual({
       totalDiscovered: 7,
       selectedCount: 5,
-      skippedFresh: 2,
+      skippedFresh: 1,
+      skippedOutOfStock: 1,
       newCount: 1,
       lastmodChangedCount: 1,
       weeklyRecheckCount: 1,
       priorityDailyCount: 2,
+      forcedRefreshCount: 0,
     });
+  });
+
+  it("forceRefresh ignores 7-day skip for every in-stock URL and supports non-overlapping offset/max batching", () => {
+    const now = new Date("2026-11-27T12:00:00Z");
+    const hoursAgo = (h: number) => new Date(now.getTime() - h * 60 * 60 * 1000);
+
+    const entries: SitemapUrlEntry[] = [
+      { loc: "https://example.com/p/d.html", lastmod: hoursAgo(48) },
+      { loc: "https://example.com/p/a.html", lastmod: hoursAgo(48) },
+      { loc: "https://example.com/p/c.html", lastmod: hoursAgo(48) },
+      { loc: "https://example.com/p/b.html", lastmod: hoursAgo(48) },
+      { loc: "https://example.com/p/oos.html", lastmod: hoursAgo(48) },
+    ];
+
+    const existing = new Map<string, ExistingProductCrawlState>([
+      ["https://example.com/p/a.html", { id: "a", productUrl: "https://example.com/p/a.html", lastCheckedAt: hoursAgo(2), inStock: true, dealScore: 50 }],
+      ["https://example.com/p/b.html", { id: "b", productUrl: "https://example.com/p/b.html", lastCheckedAt: hoursAgo(2), inStock: true, dealScore: 50 }],
+      ["https://example.com/p/c.html", { id: "c", productUrl: "https://example.com/p/c.html", lastCheckedAt: hoursAgo(2), inStock: true, dealScore: 50 }],
+      ["https://example.com/p/d.html", { id: "d", productUrl: "https://example.com/p/d.html", lastCheckedAt: hoursAgo(2), inStock: true, dealScore: 50 }],
+      ["https://example.com/p/oos.html", { id: "oos", productUrl: "https://example.com/p/oos.html", lastCheckedAt: hoursAgo(2), inStock: false, dealScore: 50 }],
+    ]);
+
+    const res = selectIncrementalUrls({
+      entries,
+      existingByUrl: existing,
+      now,
+      forceRefresh: true,
+    });
+
+    // All 4 fresh in-stock URLs selected in deterministic alphabetical order; unchanged OOS skipped
+    expect(res.selected.map((s) => s.loc)).toEqual([
+      "https://example.com/p/a.html",
+      "https://example.com/p/b.html",
+      "https://example.com/p/c.html",
+      "https://example.com/p/d.html",
+    ]);
+    expect(res.stats.forcedRefreshCount).toBe(4);
+    expect(res.stats.skippedOutOfStock).toBe(1);
+
+    // Split into 2 non-overlapping batches (offset=0, max=2 and offset=2, max=2)
+    const batch1 = sliceUrlBatch(res.selected, 0, 2).map((s) => s.loc);
+    const batch2 = sliceUrlBatch(res.selected, 2, 2).map((s) => s.loc);
+    expect(batch1).toEqual(["https://example.com/p/a.html", "https://example.com/p/b.html"]);
+    expect(batch2).toEqual(["https://example.com/p/c.html", "https://example.com/p/d.html"]);
+    expect(new Set([...batch1, ...batch2]).size).toBe(4);
   });
 });

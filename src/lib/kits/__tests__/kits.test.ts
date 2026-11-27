@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { checkKitColorPairing } from "@config/kit-rules";
+import { deriveProductFormality } from "@/lib/classify";
 import { buildInterviewKit, type KitCandidateProduct } from "../index";
 
 function makeProduct(overrides: Partial<KitCandidateProduct> & { id: string }): KitCandidateProduct {
@@ -17,86 +19,108 @@ function makeProduct(overrides: Partial<KitCandidateProduct> & { id: string }): 
     dealScore: 78,
     dealLabel: "Real deal",
     inStock: true,
-    sizes: ["M", "L", "32x32", "40R", "10"],
+    colors: ["White"],
+    sizes: ["M", "L", "32x32", "40R", "10", "34"],
     imageUrl: null,
     productUrl: "https://bonobos.com/products/sample",
     ...overrides,
   };
 }
 
-describe("Interview Kit deterministic bundle optimizer", () => {
-  it("maximizes deal score under budget cap while enforcing max 2 items per brand and in-stock/size filters", () => {
+describe("Interview Kit deterministic bundle optimizer (shoes/belt split, color pairing, formality)", () => {
+  it("computes deterministic formality scores from category, subcategory, and title", () => {
+    expect(
+      deriveProductFormality({ category: "suits", subcategory: "Worsted Wool Suit", title: "Navy Suit" }).formality
+    ).toBe("high");
+    expect(
+      deriveProductFormality({ category: "dress-shirts-ocbds", subcategory: "OCBD", title: "Non-Iron Oxford" }).formality
+    ).toBe("high");
+    expect(
+      deriveProductFormality({ category: "blazers-sport-coats", subcategory: "Knit Blazer", title: "Knit Blazer" }).formality
+    ).toBe("medium");
+    expect(
+      deriveProductFormality({ category: "chinos-dress-pants", subcategory: "Chino", title: "Stretch Chino" }).formality
+    ).toBe("medium");
+    expect(
+      deriveProductFormality({ category: "chinos-dress-pants", subcategory: "Wool Dress Pant", title: "Italian Wool Dress Pant" }).formality
+    ).toBe("high");
+    expect(
+      deriveProductFormality({ category: "shoes-belts", subcategory: "Dress Belt", title: "Heritage Bungee Belt" }).formality
+    ).toBe("medium");
+    expect(
+      deriveProductFormality({ category: "shoes-belts", subcategory: "Dress Belt", title: "Silver Buckle Leather Dress Belt" }).formality
+    ).toBe("high");
+  });
+
+  it("enforces color-pairing rules: leather harmony & charcoal tailoring in full_time tier", () => {
+    expect(checkKitColorPairing({ shoes: "Black", belt: "Brown" }, "intern").ok).toBe(false);
+    expect(checkKitColorPairing({ shoes: "Brown", belt: "Black" }, "intern").ok).toBe(false);
+    expect(checkKitColorPairing({ shoes: "Black", belt: "Black" }, "intern").ok).toBe(true);
+    expect(checkKitColorPairing({ tailoring: "Charcoal", shoes: "Brown" }, "full_time").ok).toBe(false);
+    expect(checkKitColorPairing({ tailoring: "Charcoal", shoes: "Black" }, "full_time").ok).toBe(true);
+    expect(checkKitColorPairing({ tailoring: "Navy", shoes: "Dark Brown", belt: "Dark Brown" }, "full_time").ok).toBe(true);
+  });
+
+  it("splits required Dress Shoes and optional Dress Belt, matches leather colors, and respects max 2 per brand", () => {
     const catalog: KitCandidateProduct[] = [
-      // Tailoring (3+ candidates)
-      makeProduct({ id: "suit-1", brandSlug: "bonobos", category: "blazers-sport-coats", currentPriceCents: 25000, dealScore: 90, sizes: ["40R"] }),
-      makeProduct({ id: "suit-2", brandSlug: "brooks-brothers", category: "blazers-sport-coats", currentPriceCents: 26000, dealScore: 86, sizes: ["40R"] }),
-      makeProduct({ id: "suit-3", brandSlug: "faherty", category: "blazers-sport-coats", currentPriceCents: 24000, dealScore: 72, sizes: ["40R"] }),
-
-      // Shirts (3+ candidates)
-      makeProduct({ id: "shirt-1", brandSlug: "bonobos", category: "dress-shirts-ocbds", currentPriceCents: 8000, dealScore: 92, sizes: ["M"] }),
-      makeProduct({ id: "shirt-2", brandSlug: "brooks-brothers", category: "dress-shirts-ocbds", currentPriceCents: 7500, dealScore: 85, sizes: ["M"] }),
-      makeProduct({ id: "shirt-3", brandSlug: "faherty", category: "dress-shirts-ocbds", currentPriceCents: 9000, dealScore: 70, sizes: ["M"] }),
-
-      // Trousers (3+ candidates)
-      makeProduct({ id: "pant-1", brandSlug: "bonobos", category: "chinos-dress-pants", currentPriceCents: 9000, dealScore: 95, sizes: ["32X32"] }),
-      makeProduct({ id: "pant-2", brandSlug: "vineyard-vines", category: "chinos-dress-pants", currentPriceCents: 9500, dealScore: 88, sizes: ["32X32"] }),
-      makeProduct({ id: "pant-3", brandSlug: "faherty", category: "chinos-dress-pants", currentPriceCents: 11000, dealScore: 65, sizes: ["32X32"] }),
-
-      // Layer (3+ candidates)
-      makeProduct({ id: "layer-1", brandSlug: "vineyard-vines", category: "quarter-zips-pullovers", currentPriceCents: 11000, dealScore: 84, sizes: ["M"] }),
-      makeProduct({ id: "layer-2", brandSlug: "faherty", category: "quarter-zips-pullovers", currentPriceCents: 12000, dealScore: 80, sizes: ["M"] }),
-      makeProduct({ id: "layer-3", brandSlug: "brooks-brothers", category: "quarter-zips-pullovers", currentPriceCents: 13000, dealScore: 76, sizes: ["M"] }),
-
-      // Shoes/Belt (3+ candidates; dress socks must be excluded)
-      makeProduct({ id: "sock-1", brandSlug: "brooks-brothers", category: "shoes-belts", subcategory: "Dress Socks", currentPriceCents: 2000, dealScore: 99, sizes: ["10"] }),
-      makeProduct({ id: "shoe-1", brandSlug: "brooks-brothers", category: "shoes-belts", subcategory: "Penny Loafer", currentPriceCents: 18000, dealScore: 82, sizes: ["10"] }),
-      makeProduct({ id: "shoe-2", brandSlug: "bonobos", category: "shoes-belts", subcategory: "Dress Belt", currentPriceCents: 6000, dealScore: 75, sizes: ["10"] }),
-      makeProduct({ id: "shoe-3", brandSlug: "vineyard-vines", category: "shoes-belts", subcategory: "Dress Belt", currentPriceCents: 6500, dealScore: 74, sizes: ["10"] }),
+      makeProduct({ id: "suit-navy", brandSlug: "brooks-brothers", category: "suits", subcategory: "Worsted Wool Suit", name: "Navy Wool Suit", colors: ["Navy"], currentPriceCents: 35000, dealScore: 90 }),
+      makeProduct({ id: "shirt-white", brandSlug: "brooks-brothers", category: "dress-shirts-ocbds", subcategory: "Non-Iron Dress Shirt", name: "White Dress Shirt", colors: ["White"], currentPriceCents: 8000, dealScore: 88 }),
+      makeProduct({ id: "trouser-gray", brandSlug: "bonobos", category: "chinos-dress-pants", subcategory: "Wool Dress Pant", name: "Gray Wool Dress Pant", colors: ["Gray"], currentPriceCents: 14000, dealScore: 86 }),
+      makeProduct({ id: "layer-navy", brandSlug: "vineyard-vines", category: "quarter-zips-pullovers", subcategory: "Quarter-Zip", name: "Merino Quarter-Zip", colors: ["Navy"], currentPriceCents: 11000, dealScore: 84 }),
+      // Shoes: only Black Oxford available -> Belt must pick Black, NOT higher-scored Brown belt!
+      makeProduct({ id: "shoe-black", brandSlug: "bonobos", category: "shoes-belts", subcategory: "Oxford Dress Shoe", name: "Black Cap-Toe Oxford", colors: ["Black"], currentPriceCents: 22000, dealScore: 85 }),
+      makeProduct({ id: "belt-brown-hi", brandSlug: "faherty", category: "shoes-belts", subcategory: "Dress Belt", name: "Brown Leather Dress Belt", colors: ["Brown"], currentPriceCents: 6000, dealScore: 99 }),
+      makeProduct({ id: "belt-black", brandSlug: "vineyard-vines", category: "shoes-belts", subcategory: "Dress Belt", name: "Black Leather Dress Belt", colors: ["Black"], currentPriceCents: 6500, dealScore: 72 }),
     ];
 
-    const kit = buildInterviewKit(catalog, {
-      tierId: "intern", // $850 cap
-      sizes: { jacketSize: "40R", topSize: "M", bottomSize: "32x32", footwearSize: "10" },
-    });
+    const kit = buildInterviewKit(catalog, { tierId: "full_time" });
 
-    expect(kit.filledCount).toBe(5);
+    expect(kit.requiredFilledCount).toBe(5);
+    expect(kit.filledCount).toBe(6);
     expect(kit.degraded).toBe(false);
-    expect(kit.totalPriceCents).toBeLessThanOrEqual(85000);
+    expect(kit.totalPriceCents).toBeLessThanOrEqual(150_000);
 
-    // Enforce max 2 items per brand
+    const shoesSlot = kit.slots.find((s) => s.slot.id === "shoes");
+    const beltSlot = kit.slots.find((s) => s.slot.id === "belt");
+    expect(shoesSlot?.slot.required).toBe(true);
+    expect(beltSlot?.slot.required).toBe(false);
+    expect(shoesSlot?.item?.id).toBe("shoe-black");
+    // Must reject the higher-scoring brown belt and pick the matching black belt
+    expect(beltSlot?.item?.id).toBe("belt-black");
+    expect(beltSlot?.matchedColor).toBe("Black");
+
     for (const count of Object.values(kit.brandCounts)) {
       expect(count).toBeLessThanOrEqual(2);
     }
-
-    // Confirm dress socks were excluded from footwear_belt slot
-    const footSlot = kit.slots.find((s) => s.slot.id === "footwear_belt");
-    expect(footSlot?.item?.id).not.toBe("sock-1");
-    expect(footSlot?.selectionReason).toContain("Deal Score");
   });
 
-  it("gracefully degrades slots with insufficient in-scope inventory instead of forcing poor matches", () => {
-    const sparseCatalog: KitCandidateProduct[] = [
-      makeProduct({ id: "shirt-a", category: "dress-shirts-ocbds", currentPriceCents: 7000, dealScore: 80 }),
-      makeProduct({ id: "shirt-b", brandSlug: "faherty", category: "dress-shirts-ocbds", currentPriceCents: 8000, dealScore: 75 }),
-      makeProduct({ id: "shirt-c", brandSlug: "brooks-brothers", category: "dress-shirts-ocbds", currentPriceCents: 8500, dealScore: 72 }),
-      // Only 1 blazer -> below minCandidates=3
-      makeProduct({ id: "blazer-only", category: "blazers-sport-coats", currentPriceCents: 20000, dealScore: 88 }),
-      // Out-of-stock trousers must be ignored
-      makeProduct({ id: "pant-oos", category: "chinos-dress-pants", inStock: false, currentPriceCents: 6000, dealScore: 95 }),
+  it("blocks casual items and non-neutral colors from formal slots without relaxing rules", () => {
+    const catalog: KitCandidateProduct[] = [
+      // Bright coral blazer -> fails neutral palette
+      makeProduct({ id: "blazer-coral", brandSlug: "vineyard-vines", category: "blazers-sport-coats", subcategory: "Navy Blazer", name: "Coral Blazer", colors: ["Coral"], currentPriceCents: 20000, dealScore: 95 }),
+      // Chino -> medium formality -> blocked in full_time (requires high), allowed in intern (medium)
+      makeProduct({ id: "chino-khaki", brandSlug: "bonobos", category: "chinos-dress-pants", subcategory: "Chino", name: "Stretch Chino", colors: ["Khaki"], currentPriceCents: 8000, dealScore: 90 }),
+      // Casual Button-Down -> medium formality -> blocked in all tiers (shirt requires high)
+      makeProduct({ id: "shirt-casual", brandSlug: "faherty", category: "dress-shirts-ocbds", subcategory: "Casual Button-Down", name: "Flannel Casual Shirt", colors: ["White"], currentPriceCents: 7000, dealScore: 92 }),
+      // Charcoal suit + ONLY Brown shoes -> blocked in full_time tier!
+      makeProduct({ id: "suit-charcoal", brandSlug: "brooks-brothers", category: "suits", subcategory: "Worsted Wool Suit", name: "Charcoal Suit", colors: ["Charcoal"], currentPriceCents: 40000, dealScore: 88 }),
+      makeProduct({ id: "shoe-brown", brandSlug: "bonobos", category: "shoes-belts", subcategory: "Oxford Dress Shoe", name: "Brown Oxford", colors: ["Brown"], currentPriceCents: 20000, dealScore: 86 }),
     ];
 
-    const kit = buildInterviewKit(sparseCatalog, { tierId: "student" });
+    const fullTimeKit = buildInterviewKit(catalog, { tierId: "full_time" });
+    expect(fullTimeKit.degraded).toBe(true);
+    expect(fullTimeKit.slots.find((s) => s.slot.id === "shirt")?.status).toBe("insufficient_inventory");
+    expect(fullTimeKit.slots.find((s) => s.slot.id === "trousers")?.status).toBe("insufficient_inventory");
+    // Charcoal suit + Brown shoes cannot coexist in full_time; solver will pick at most one of them, never relaxing pairing rule
+    const ftTailoring = fullTimeKit.slots.find((s) => s.slot.id === "tailoring")?.item;
+    const ftShoes = fullTimeKit.slots.find((s) => s.slot.id === "shoes")?.item;
+    expect(Boolean(ftTailoring && ftShoes)).toBe(false);
+    expect(fullTimeKit.slots.find((s) => s.slot.id === "shirt")?.selectionReason).toContain(
+      "Not enough in-scope inventory yet"
+    );
 
-    expect(kit.degraded).toBe(true);
-    expect(kit.filledCount).toBe(1);
-    const shirtSlot = kit.slots.find((s) => s.slot.id === "shirt");
-    const tailoringSlot = kit.slots.find((s) => s.slot.id === "tailoring");
-    const trousersSlot = kit.slots.find((s) => s.slot.id === "trousers");
-
-    expect(shirtSlot?.status).toBe("filled");
-    expect(tailoringSlot?.status).toBe("insufficient_inventory");
-    expect(tailoringSlot?.selectionReason).toContain("Not enough in-scope inventory yet");
-    expect(trousersSlot?.status).toBe("insufficient_inventory");
-    expect(trousersSlot?.eligibleCount).toBe(0);
+    // In intern tier, Chino (medium) IS allowed for trousers
+    const internKit = buildInterviewKit(catalog, { tierId: "intern" });
+    expect(internKit.slots.find((s) => s.slot.id === "trousers")?.item?.id).toBe("chino-khaki");
   });
 });

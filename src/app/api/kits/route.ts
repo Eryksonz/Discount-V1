@@ -21,7 +21,8 @@ export async function GET(request: Request) {
       topSize: searchParams.get("topSize") || undefined,
       bottomSize: searchParams.get("bottomSize") || undefined,
       jacketSize: searchParams.get("jacketSize") || undefined,
-      footwearSize: searchParams.get("footwearSize") || undefined,
+      shoeSize: searchParams.get("shoeSize") || searchParams.get("footwearSize") || undefined,
+      beltSize: searchParams.get("beltSize") || undefined,
     };
 
     const { candidates } = await loadKitCandidates();

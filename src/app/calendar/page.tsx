@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Calendar, Clock, Radio, Tag, ArrowRight } from "lucide-react";
+import { Calendar, Clock, Radio, Tag, ArrowRight, CheckCircle2, Info } from "lucide-react";
 import { BRAND_BY_SLUG } from "@config/brands";
 import { getSqlClient } from "@/db";
 import { SiteFooter } from "@/components/SiteFooter";
@@ -17,6 +17,8 @@ interface SaleEventRow {
   endsAt: string;
   typicalDiscountNote: string;
   triggersHighFrequency: boolean;
+  confirmed: boolean;
+  confirmedAt: string | null;
 }
 
 interface PromoRow {
@@ -38,6 +40,26 @@ function formatDateRange(startIso: string, endIso: string): string {
   return `${s.toLocaleDateString("en-US", opts)} – ${e.toLocaleDateString("en-US", opts)}`;
 }
 
+function ConfirmationBadge({ confirmed, confirmedAt }: { confirmed: boolean; confirmedAt: string | null }) {
+  if (confirmed) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full bg-[#E8F3EC] border border-[#14532D]/20 px-2 py-0.5 font-mono text-[10px] font-semibold text-[#14532D]"
+        title={confirmedAt ? `Confirmed ${new Date(confirmedAt).toLocaleDateString("en-US")}` : "Admin confirmed"}
+      >
+        <CheckCircle2 className="w-3 h-3" />
+        Confirmed
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-[#FEF3C7] border border-[#D97706]/30 px-2 py-0.5 font-mono text-[10px] font-medium text-[#92400E]">
+      <Info className="w-3 h-3" />
+      Typical timing, not confirmed
+    </span>
+  );
+}
+
 export default async function SaleCalendarPage() {
   const sql = getSqlClient();
   let events: SaleEventRow[] = [];
@@ -47,7 +69,7 @@ export default async function SaleCalendarPage() {
   if (sql) {
     const [eventRows, promoRows, countRows] = await Promise.all([
       sql`
-        SELECT id, slug, name, brand_slug, starts_at, ends_at, typical_discount_note, triggers_high_frequency
+        SELECT id, slug, name, brand_slug, starts_at, ends_at, typical_discount_note, triggers_high_frequency, confirmed, confirmed_at
         FROM sale_events
         ORDER BY starts_at ASC
       `,
@@ -72,6 +94,8 @@ export default async function SaleCalendarPage() {
       endsAt: new Date(String(r.ends_at)).toISOString(),
       typicalDiscountNote: String(r.typical_discount_note ?? ""),
       triggersHighFrequency: Boolean(r.triggers_high_frequency),
+      confirmed: Boolean(r.confirmed),
+      confirmedAt: r.confirmed_at ? new Date(String(r.confirmed_at)).toISOString() : null,
     }));
 
     activePromos = promoRows.map((r) => ({
@@ -115,9 +139,11 @@ export default async function SaleCalendarPage() {
             Menswear Sale Calendar
           </h1>
           <p className="text-sm text-[#4B5869] max-w-2xl leading-relaxed">
-            Major seasonal markdown windows across our curated brands. Events marked{" "}
-            <span className="font-mono text-xs text-[#14532D] font-semibold">HIGH-FREQ</span>{" "}
-            automatically opt active brands into 4-hour price checks during the sale window.
+            Seasonal markdown windows across our curated brands. Future annual events are labeled{" "}
+            <span className="font-mono text-xs font-semibold text-[#92400E]">
+              Typical timing, not confirmed
+            </span>{" "}
+            until an editor explicitly confirms dates in <span className="font-mono text-xs">/admin</span>.
           </p>
         </header>
 
@@ -126,7 +152,7 @@ export default async function SaleCalendarPage() {
           <div className="flex items-center gap-2">
             <Radio className="w-4 h-4 text-[#14532D]" />
             <h2 className="font-serif text-xl font-semibold text-[#0F1D32]">
-              Live Sale Windows ({liveEvents.length})
+              Current Sale Windows ({liveEvents.length})
             </h2>
           </div>
 
@@ -145,11 +171,17 @@ export default async function SaleCalendarPage() {
                     className="rounded-lg border-2 border-[#14532D]/30 bg-white p-5 space-y-3 shadow-xs"
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E8F3EC] px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-[#14532D]">
-                          Live Now
-                        </span>
-                        <h3 className="font-serif text-lg font-semibold text-[#0F1D32] mt-1.5">
+                      <div className="space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-[#E8F3EC] px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-[#14532D]">
+                            Active Window
+                          </span>
+                          <ConfirmationBadge
+                            confirmed={ev.confirmed}
+                            confirmedAt={ev.confirmedAt}
+                          />
+                        </div>
+                        <h3 className="font-serif text-lg font-semibold text-[#0F1D32]">
                           {ev.name}
                         </h3>
                       </div>
@@ -244,11 +276,15 @@ export default async function SaleCalendarPage() {
                   key={ev.id}
                   className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
                 >
-                  <div className="space-y-1">
+                  <div className="space-y-1.5">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold text-sm sm:text-base text-[#0F1D32]">
                         {ev.name}
                       </h3>
+                      <ConfirmationBadge
+                        confirmed={ev.confirmed}
+                        confirmedAt={ev.confirmedAt}
+                      />
                       <span className="rounded bg-[#EFEAE0] px-2 py-0.5 font-mono text-[10px] text-[#5C6776]">
                         {brand ? `${brand.code} · ${brand.name}` : "MARKET-WIDE"}
                       </span>
@@ -277,7 +313,10 @@ export default async function SaleCalendarPage() {
             <div className="rounded-lg border border-[#E2DCD0] bg-white/70 divide-y divide-[#EDE7DB]">
               {pastEvents.map((ev) => (
                 <div key={ev.id} className="px-4 py-3 flex items-center justify-between text-xs text-[#5C6776]">
-                  <span>{ev.name}</span>
+                  <span className="flex items-center gap-2">
+                    {ev.name}
+                    <ConfirmationBadge confirmed={ev.confirmed} confirmedAt={ev.confirmedAt} />
+                  </span>
                   <span className="font-mono">{formatDateRange(ev.startsAt, ev.endsAt)}</span>
                 </div>
               ))}

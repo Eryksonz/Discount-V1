@@ -4,6 +4,7 @@ import { parseShopifyProducts, type ShopifyProductsPayload } from "../parsers/sh
 import {
   discoverSitemapUrls,
   selectIncrementalUrls,
+  sliceUrlBatch,
   type ExistingProductCrawlState,
   type IncrementalSelectionResult,
 } from "../sitemap";
@@ -175,10 +176,10 @@ async function tryJsonLd(ctx: CrawlAdapterContext): Promise<{
         entries: discovery.entries,
         existingByUrl,
         priorityProductIds: ctx.priorityProductIds,
-        forceFull: ctx.forceFull,
+        forceRefresh: ctx.forceRefresh,
       });
 
-      const batch = selection.selected.slice(0, safetyCap);
+      const batch = sliceUrlBatch(selection.selected, ctx.offset ?? 0, safetyCap);
       let urlsFetched = 0;
 
       for (const entry of batch) {

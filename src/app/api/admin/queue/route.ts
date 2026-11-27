@@ -360,6 +360,7 @@ export async function POST(request: NextRequest) {
       String(body.typicalDiscountNote ?? "").trim() ||
       "Sitewide or tiered promotional event.";
     const triggersHighFrequency = body.triggersHighFrequency !== false;
+    const confirmed = body.confirmed === true;
 
     if (!name) {
       return NextResponse.json({ error: "Sale event name is required." }, { status: 400 });
@@ -375,6 +376,8 @@ export async function POST(request: NextRequest) {
         endsAt,
         typicalDiscountNote,
         triggersHighFrequency,
+        confirmed,
+        confirmedAt: confirmed ? new Date() : null,
       })
       .onConflictDoUpdate({
         target: schema.saleEvents.slug,
@@ -385,8 +388,45 @@ export async function POST(request: NextRequest) {
           endsAt,
           typicalDiscountNote,
           triggersHighFrequency,
+          confirmed,
+          confirmedAt: confirmed ? new Date() : null,
         },
       });
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "set_sale_event_confirmed") {
+    const id = Number(body.id);
+    const confirmed = Boolean(body.confirmed);
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: "Valid sale event id required." }, { status: 400 });
+    }
+    await db
+      .update(schema.saleEvents)
+      .set({ confirmed, confirmedAt: confirmed ? new Date() : null })
+      .where(eq(schema.saleEvents.id, id));
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "verify_student_promo") {
+    const id = Number(body.id);
+    const verified = Boolean(body.verified);
+    if (!Number.isFinite(id)) {
+      return NextResponse.json({ error: "Valid student promo id required." }, { status: 400 });
+    }
+    const offerText = body.offerText ? String(body.offerText).trim() : undefined;
+    const terms = body.terms ? String(body.terms).trim() : undefined;
+    const sourceUrl = body.sourceUrl ? String(body.sourceUrl).trim() : null;
+    await db
+      .update(schema.studentPromos)
+      .set({
+        verified,
+        verifiedAt: verified ? new Date() : null,
+        ...(offerText ? { offerText } : {}),
+        ...(terms ? { terms } : {}),
+        sourceUrl,
+      })
+      .where(eq(schema.studentPromos.id, id));
     return NextResponse.json({ ok: true });
   }
 

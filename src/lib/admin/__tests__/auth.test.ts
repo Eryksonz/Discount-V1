@@ -3,15 +3,17 @@ import {
   checkAdminLoginRateLimit,
   clearAdminLoginFailures,
   constantTimeStringEqual,
+  isWeakAdminPassword,
   recordAdminLoginFailure,
+  validateProductionSecurityConfig,
   verifyAdminPassword,
 } from "../auth";
 
-describe("Admin auth constant-time comparison & login rate limiting", () => {
+describe("Admin auth constant-time comparison, rate limiting & production password strength", () => {
   const origPwd = process.env.ADMIN_PASSWORD;
 
   beforeEach(() => {
-    process.env.ADMIN_PASSWORD = "super-secret-admin-pass";
+    process.env.ADMIN_PASSWORD = "super-secret-admin-pass-2026!";
     clearAdminLoginFailures("test-ip-1");
   });
 
@@ -28,7 +30,7 @@ describe("Admin auth constant-time comparison & login rate limiting", () => {
   });
 
   it("verifies ADMIN_PASSWORD and fails closed when unset", () => {
-    expect(verifyAdminPassword("super-secret-admin-pass").ok).toBe(true);
+    expect(verifyAdminPassword("super-secret-admin-pass-2026!").ok).toBe(true);
     expect(verifyAdminPassword("wrong-pass").ok).toBe(false);
 
     delete process.env.ADMIN_PASSWORD;
@@ -45,7 +47,46 @@ describe("Admin auth constant-time comparison & login rate limiting", () => {
     expect(blocked.allowed).toBe(false);
     expect(blocked.retryAfterSec).toBeGreaterThan(0);
 
-    // Allowed again after 15-minute window expires
     expect(checkAdminLoginRateLimit("test-ip-1", t0 + 16 * 60_000).allowed).toBe(true);
+  });
+
+  it("fails startup loudly in production when ADMIN_PASSWORD is missing or weak", () => {
+    expect(() =>
+      validateProductionSecurityConfig({ NODE_ENV: "production" })
+    ).toThrow(/ADMIN_PASSWORD is missing/);
+
+    expect(() =>
+      validateProductionSecurityConfig({ NODE_ENV: "production", ADMIN_PASSWORD: "short" })
+    ).toThrow(/at least 16 characters/);
+
+    expect(() =>
+      validateProductionSecurityConfig({
+        NODE_ENV: "production",
+        ADMIN_PASSWORD: "password12345678",
+      })
+    ).toThrow(/weak|disallowed/);
+
+    expect(() =>
+      validateProductionSecurityConfig({
+        NODE_ENV: "production",
+        ADMIN_PASSWORD: "aaaaaaaaaaaaaaaaaaaa",
+      })
+    ).toThrow(/weak|diversity/);
+
+    expect(isWeakAdminPassword("T&T-Prod-9xK4mQ2vR8pL!")).toBeNull();
+    expect(() =>
+      validateProductionSecurityConfig({
+        NODE_ENV: "production",
+        ADMIN_PASSWORD: "T&T-Prod-9xK4mQ2vR8pL!",
+      })
+    ).not.toThrow();
+
+    // Skips throwing during next build phase
+    expect(() =>
+      validateProductionSecurityConfig({
+        NODE_ENV: "production",
+        NEXT_PHASE: "phase-production-build",
+      })
+    ).not.toThrow();
   });
 });

@@ -19,7 +19,7 @@ export type IncrementalFetchReason =
   | "new"
   | "lastmod_changed"
   | "weekly_recheck"
-  | "forced_full";
+  | "forced_refresh";
 
 export interface SelectedSitemapUrl extends SitemapUrlEntry {
   reason: IncrementalFetchReason;
@@ -31,10 +31,12 @@ export interface IncrementalSelectionResult {
     totalDiscovered: number;
     selectedCount: number;
     skippedFresh: number;
+    skippedOutOfStock: number;
     newCount: number;
     lastmodChangedCount: number;
     weeklyRecheckCount: number;
     priorityDailyCount: number;
+    forcedRefreshCount: number;
   };
 }
 
@@ -172,7 +174,6 @@ export async function discoverSitemapUrls(
     const parsed = parseSitemapXml(res.body);
 
     if (parsed.childSitemaps.length > 0) {
-      // Prefer explicit product sitemaps when a sitemap index separates products from categories
       const productChildren = parsed.childSitemaps.filter((c) => /product/i.test(c));
       const nextChildren = productChildren.length > 0 ? productChildren : parsed.childSitemaps;
       for (const child of nextChildren) {
@@ -187,17 +188,23 @@ export async function discoverSitemapUrls(
     }
   }
 
-  const filtered = filterBrandSitemapUrls(brand.slug, Array.from(urlMap.values()));
+  const filtered = filterBrandSitemapUrls(brand.slug, Array.from(urlMap.values())).sort((a, b) =>
+    a.loc.localeCompare(b.loc)
+  );
   return { entries: filtered, errors, circuitTripped: false };
 }
 
 /**
  * Pure hybrid incremental URL selector:
- *  1. Priority daily re-check: watchlisted/alerted products or high-score deals (>=70) older than `dailyReCheckHours` (default 20h)
- *  2. Newly discovered URLs not yet in the database
- *  3. Sitemap `<lastmod>` newer than `existing.lastCheckedAt`
- *  4. Rolling weekly re-check: every in-stock product whose `lastCheckedAt` is >= `weeklyReCheckDays` (default 7d) old,
- *     ensuring price drops are caught even when a retailer changes price without bumping `<lastmod>`.
+ *  - Default mode (`forceRefresh = false`):
+ *    1. Priority daily re-check: watchlisted/alerted products or high-score deals (>=70) older than `dailyReCheckHours` (default 20h)
+ *    2. Sitemap `<lastmod>` newer than `existing.lastCheckedAt`
+ *    3. Newly discovered URLs not yet in the database
+ *    4. Rolling weekly re-check: every in-stock product whose `lastCheckedAt` is >= `weeklyReCheckDays` (default 7d) old
+ *  - Sale-week mode (`forceRefresh = true`):
+ *    Ignores the 7-day freshness skip and selects EVERY in-stock product URL (plus new URLs and lastmod-updated URLs)
+ *    in deterministic `loc`-sorted order so `offset` + `maxProducts` batching splits a full forced pass cleanly
+ *    across multiple workflow runs without ever refetching the same URLs.
  */
 export function selectIncrementalUrls(params: {
   entries: SitemapUrlEntry[];
@@ -207,6 +214,8 @@ export function selectIncrementalUrls(params: {
   dailyReCheckHours?: number;
   highScoreThreshold?: number;
   now?: Date;
+  forceRefresh?: boolean;
+  /** @deprecated Alias for forceRefresh */
   forceFull?: boolean;
 }): IncrementalSelectionResult {
   const now = params.now ?? new Date();
@@ -214,24 +223,63 @@ export function selectIncrementalUrls(params: {
   const dailyMs = (params.dailyReCheckHours ?? 20) * 60 * 60 * 1000;
   const highScoreThreshold = params.highScoreThreshold ?? 70;
   const priorityIds = params.priorityProductIds ?? new Set<string>();
+  const forceRefresh = Boolean(params.forceRefresh ?? params.forceFull);
+
+  // Ensure deterministic ordering by URL before selection
+  const sortedEntries = [...params.entries].sort((a, b) => a.loc.localeCompare(b.loc));
+
+  if (forceRefresh) {
+    const selected: SelectedSitemapUrl[] = [];
+    let newCount = 0;
+    let forcedRefreshCount = 0;
+    let skippedOutOfStock = 0;
+
+    for (const entry of sortedEntries) {
+      const existing = params.existingByUrl.get(entry.loc);
+      if (!existing) {
+        selected.push({ ...entry, reason: "new" });
+        newCount += 1;
+        continue;
+      }
+      if (existing.inStock) {
+        selected.push({ ...entry, reason: "forced_refresh" });
+        forcedRefreshCount += 1;
+      } else if (entry.lastmod && entry.lastmod.getTime() > existing.lastCheckedAt.getTime()) {
+        // Out-of-stock item whose sitemap entry was updated might have restocked
+        selected.push({ ...entry, reason: "lastmod_changed" });
+      } else {
+        skippedOutOfStock += 1;
+      }
+    }
+
+    return {
+      selected,
+      stats: {
+        totalDiscovered: sortedEntries.length,
+        selectedCount: selected.length,
+        skippedFresh: 0,
+        skippedOutOfStock,
+        newCount,
+        lastmodChangedCount: selected.filter((s) => s.reason === "lastmod_changed").length,
+        weeklyRecheckCount: 0,
+        priorityDailyCount: 0,
+        forcedRefreshCount,
+      },
+    };
+  }
 
   const priorityDaily: SelectedSitemapUrl[] = [];
   const newUrls: SelectedSitemapUrl[] = [];
   const lastmodChanged: SelectedSitemapUrl[] = [];
   const weeklyRecheck: SelectedSitemapUrl[] = [];
-  const forcedFull: SelectedSitemapUrl[] = [];
   let skippedFresh = 0;
+  let skippedOutOfStock = 0;
 
-  for (const entry of params.entries) {
+  for (const entry of sortedEntries) {
     const existing = params.existingByUrl.get(entry.loc);
 
     if (!existing) {
       newUrls.push({ ...entry, reason: "new" });
-      continue;
-    }
-
-    if (params.forceFull) {
-      forcedFull.push({ ...entry, reason: "forced_full" });
       continue;
     }
 
@@ -253,37 +301,49 @@ export function selectIncrementalUrls(params: {
       continue;
     }
 
-    skippedFresh += 1;
+    if (!existing.inStock) {
+      skippedOutOfStock += 1;
+    } else {
+      skippedFresh += 1;
+    }
   }
 
-  // Sort weekly re-checks oldest-first so bounded batches always advance the rolling window
   weeklyRecheck.sort((a, b) => {
     const tA = params.existingByUrl.get(a.loc)?.lastCheckedAt.getTime() ?? 0;
     const tB = params.existingByUrl.get(b.loc)?.lastCheckedAt.getTime() ?? 0;
-    return tA - tB;
+    return tA - tB || a.loc.localeCompare(b.loc);
   });
 
-  // Sort lastmod-changed newest-lastmod-first
-  lastmodChanged.sort((a, b) => (b.lastmod?.getTime() ?? 0) - (a.lastmod?.getTime() ?? 0));
+  lastmodChanged.sort(
+    (a, b) =>
+      (b.lastmod?.getTime() ?? 0) - (a.lastmod?.getTime() ?? 0) || a.loc.localeCompare(b.loc)
+  );
 
-  const selected = [
-    ...priorityDaily,
-    ...lastmodChanged,
-    ...newUrls,
-    ...weeklyRecheck,
-    ...forcedFull,
-  ];
+  const selected = [...priorityDaily, ...lastmodChanged, ...newUrls, ...weeklyRecheck];
 
   return {
     selected,
     stats: {
-      totalDiscovered: params.entries.length,
+      totalDiscovered: sortedEntries.length,
       selectedCount: selected.length,
       skippedFresh,
+      skippedOutOfStock,
       newCount: newUrls.length,
       lastmodChangedCount: lastmodChanged.length,
       weeklyRecheckCount: weeklyRecheck.length,
       priorityDailyCount: priorityDaily.length,
+      forcedRefreshCount: 0,
     },
   };
+}
+
+/**
+ * Slices a deterministic selected URL list into a non-overlapping batch `[offset, offset + limit)`.
+ */
+export function sliceUrlBatch<T>(items: T[], offset = 0, limit?: number): T[] {
+  const safeOffset = Math.max(0, Math.floor(offset));
+  if (limit === undefined || limit <= 0) {
+    return items.slice(safeOffset);
+  }
+  return items.slice(safeOffset, safeOffset + Math.floor(limit));
 }

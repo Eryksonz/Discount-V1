@@ -29,7 +29,7 @@ export async function loadKitCandidates(): Promise<{
         id, slug, brand_slug, name, category, subcategory,
         current_price_cents, original_price_cents, median_90d_cents,
         pct_below_median, deal_score, deal_label, in_stock,
-        sizes, image_url, product_url
+        colors, sizes, image_url, product_url
       FROM products
       WHERE classification_status IN ('classified', 'manual')
         AND in_stock = TRUE
@@ -62,6 +62,7 @@ export async function loadKitCandidates(): Promise<{
       dealScore: Number(r.deal_score),
       dealLabel: String(r.deal_label),
       inStock: Boolean(r.in_stock),
+      colors: Array.isArray(r.colors) ? (r.colors as string[]) : [],
       sizes: Array.isArray(r.sizes) ? (r.sizes as string[]) : [],
       imageUrl: r.image_url ? String(r.image_url) : null,
       productUrl: String(r.product_url),

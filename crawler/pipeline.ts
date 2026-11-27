@@ -129,8 +129,9 @@ export async function runBrandCrawl(params: {
   brandSlug: string;
   mode: "baseline" | "high-frequency" | "manual";
   maxProducts?: number;
+  offset?: number;
   dryRun?: boolean;
-  forceFull?: boolean;
+  forceRefresh?: boolean;
 }): Promise<CrawlRunSummary> {
   const startedAt = new Date();
   const brandConfig = BRAND_BY_SLUG[params.brandSlug];
@@ -186,7 +187,8 @@ export async function runBrandCrawl(params: {
       brand: brandConfig,
       http,
       maxProducts: safetyCap,
-      forceFull: params.forceFull,
+      offset: params.offset,
+      forceRefresh: params.forceRefresh,
     });
     let classifiedCount = 0;
     let outOfScopeCount = 0;
@@ -346,14 +348,15 @@ export async function runBrandCrawl(params: {
       snapshotsByProductId.set(s.productId, list);
     }
 
-    // Execute polite adapter (full Shopify pagination OR incremental sitemap JSON-LD)
+    // Execute polite adapter (full Shopify pagination OR incremental/forced sitemap JSON-LD)
     const crawlRes = await adapter.crawl({
       brand: brandConfig,
       http,
       maxProducts: safetyCap,
+      offset: params.offset,
       existingProducts: existingCrawlStates,
       priorityProductIds,
-      forceFull: params.forceFull,
+      forceRefresh: params.forceRefresh,
     });
 
     let newProducts = 0;

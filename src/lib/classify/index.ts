@@ -4,6 +4,7 @@ import {
   type CategorySlug,
   type OccasionTag,
 } from "@config/categories";
+import { FORMALITY_RANK, type FormalityLevel } from "@config/kit-rules";
 import {
   CATEGORY_RULES,
   COLOR_NORMALIZATION_MAP,
@@ -24,6 +25,8 @@ export interface ClassificationResult {
   category: AllCategorySlug | null;
   subcategory: string | null;
   occasions: OccasionTag[];
+  formality: FormalityLevel;
+  formalityScore: number;
   normalizedColors: string[];
   normalizedSizes: string[];
   matchedRuleId: string | null;
@@ -173,6 +176,84 @@ function compileCustomRules(customRules: CustomRuleDefinition[] = []): CategoryR
   });
 }
 
+/**
+ * Deterministic formality tier derived purely from classified category, subcategory, and title tokens:
+ *  - high (3): suits, structured blazers, dress shirts/OCBDs, wool/flannel dress trousers, ties, leather dress shoes & dress belts
+ *  - medium (2): chinos, performance/commuter trousers, polos, quarter-zips/sweaters, casual button-downs, knit/unstructured blazers, canvas/bungee belts, suede loafers
+ *  - low (1): out_of_scope or unclassified items
+ */
+export function deriveProductFormality(input: {
+  category: string | null | undefined;
+  subcategory?: string | null;
+  title?: string;
+}): { formality: FormalityLevel; formalityScore: number } {
+  const cat = input.category;
+  const sub = (input.subcategory ?? "").trim();
+  const title = (input.title ?? "").toLowerCase();
+
+  if (!cat || cat === OUT_OF_SCOPE_CATEGORY) {
+    return { formality: "low", formalityScore: FORMALITY_RANK.low };
+  }
+
+  if (cat === "suits" || cat === "ties-pocket-squares") {
+    return { formality: "high", formalityScore: FORMALITY_RANK.high };
+  }
+
+  if (cat === "blazers-sport-coats") {
+    if (
+      sub === "Knit Blazer" ||
+      sub === "Unstructured Blazer" ||
+      /\b(knit|unstructured|chore|linen|jersey|sweatshirt)\b/i.test(title)
+    ) {
+      return { formality: "medium", formalityScore: FORMALITY_RANK.medium };
+    }
+    return { formality: "high", formalityScore: FORMALITY_RANK.high };
+  }
+
+  if (cat === "dress-shirts-ocbds") {
+    if (
+      sub === "Casual Button-Down" ||
+      /\b(short[- ]?sleeve|flannel|chambray|linen|camp|western|untucked)\b/i.test(title)
+    ) {
+      return { formality: "medium", formalityScore: FORMALITY_RANK.medium };
+    }
+    return { formality: "high", formalityScore: FORMALITY_RANK.high };
+  }
+
+  if (cat === "chinos-dress-pants") {
+    if (
+      sub === "Wool Dress Pant" ||
+      sub === "Flannel Trouser" ||
+      /\b(dress\s+pant|dress\s+trouser|wool\s+(pant|trouser)|gabardine|suit\s+pant)\b/i.test(title)
+    ) {
+      return { formality: "high", formalityScore: FORMALITY_RANK.high };
+    }
+    return { formality: "medium", formalityScore: FORMALITY_RANK.medium };
+  }
+
+  if (cat === "shoes-belts") {
+    if (sub === "Oxford Dress Shoe" || sub === "Derby / Monk Strap") {
+      return { formality: "high", formalityScore: FORMALITY_RANK.high };
+    }
+    if (sub === "Penny Loafer") {
+      if (/\b(suede|driving|boat|canvas)\b/i.test(title)) {
+        return { formality: "medium", formalityScore: FORMALITY_RANK.medium };
+      }
+      return { formality: "high", formalityScore: FORMALITY_RANK.high };
+    }
+    if (sub === "Dress Belt") {
+      if (/\b(bungee|canvas|club|woven|braided|webbing|elastic|stretch|needlepoint)\b/i.test(title)) {
+        return { formality: "medium", formalityScore: FORMALITY_RANK.medium };
+      }
+      return { formality: "high", formalityScore: FORMALITY_RANK.high };
+    }
+    return { formality: "medium", formalityScore: FORMALITY_RANK.medium };
+  }
+
+  // polos, quarter-zips-pullovers, performance-trousers, outerwear -> medium
+  return { formality: "medium", formalityScore: FORMALITY_RANK.medium };
+}
+
 export function classifyProduct(
   input: ClassificationInput,
   customRules: CustomRuleDefinition[] = []
@@ -206,16 +287,25 @@ export function classifyProduct(
           category: OUT_OF_SCOPE_CATEGORY,
           subcategory: rule.subcategory,
           occasions: [],
+          formality: "low",
+          formalityScore: FORMALITY_RANK.low,
           normalizedColors,
           normalizedSizes,
           matchedRuleId: rule.id,
           status: "out_of_scope",
         };
       }
+      const { formality, formalityScore } = deriveProductFormality({
+        category: rule.category,
+        subcategory: rule.subcategory,
+        title: input.title,
+      });
       return {
         category: rule.category,
         subcategory: rule.subcategory,
         occasions: deriveOccasions(rule.category, rule.subcategory, haystack),
+        formality,
+        formalityScore,
         normalizedColors,
         normalizedSizes,
         matchedRuleId: rule.id,
@@ -228,6 +318,8 @@ export function classifyProduct(
     category: null,
     subcategory: null,
     occasions: [],
+    formality: "low",
+    formalityScore: FORMALITY_RANK.low,
     normalizedColors,
     normalizedSizes,
     matchedRuleId: null,

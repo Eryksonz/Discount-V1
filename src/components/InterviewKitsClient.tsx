@@ -24,7 +24,8 @@ interface InterviewKitsClientProps {
     top: string[];
     bottom: string[];
     jacket: string[];
-    footwear: string[];
+    shoes: string[];
+    belt: string[];
   };
 }
 
@@ -36,7 +37,8 @@ export function InterviewKitsClient({
   const [topSize, setTopSize] = useState("");
   const [bottomSize, setBottomSize] = useState("");
   const [jacketSize, setJacketSize] = useState("");
-  const [footwearSize, setFootwearSize] = useState("");
+  const [shoeSize, setShoeSize] = useState("");
+  const [beltSize, setBeltSize] = useState("");
   const [kit, setKit] = useState<BuiltInterviewKit>(initialKit);
   const [loading, setLoading] = useState(false);
 
@@ -45,7 +47,8 @@ export function InterviewKitsClient({
     topSize: string;
     bottomSize: string;
     jacketSize: string;
-    footwearSize: string;
+    shoeSize: string;
+    beltSize: string;
   }) {
     setLoading(true);
     try {
@@ -53,7 +56,8 @@ export function InterviewKitsClient({
       if (next.topSize) params.set("topSize", next.topSize);
       if (next.bottomSize) params.set("bottomSize", next.bottomSize);
       if (next.jacketSize) params.set("jacketSize", next.jacketSize);
-      if (next.footwearSize) params.set("footwearSize", next.footwearSize);
+      if (next.shoeSize) params.set("shoeSize", next.shoeSize);
+      if (next.beltSize) params.set("beltSize", next.beltSize);
       const res = await fetch(`/api/kits?${params.toString()}`);
       if (res.ok) {
         setKit((await res.json()) as BuiltInterviewKit);
@@ -75,7 +79,7 @@ export function InterviewKitsClient({
               type="button"
               onClick={() => {
                 setTier(t.id);
-                void recompute({ tier: t.id, topSize, bottomSize, jacketSize, footwearSize });
+                void recompute({ tier: t.id, topSize, bottomSize, jacketSize, shoeSize, beltSize });
               }}
               className={`text-left rounded-lg p-4 border transition-all ${
                 active
@@ -116,7 +120,7 @@ export function InterviewKitsClient({
           )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div>
             <label className="block font-mono text-[10px] uppercase text-[#5C6776] mb-1">
               Jacket / Blazer
@@ -126,7 +130,7 @@ export function InterviewKitsClient({
               onChange={(e) => {
                 const v = e.target.value;
                 setJacketSize(v);
-                void recompute({ tier, topSize, bottomSize, jacketSize: v, footwearSize });
+                void recompute({ tier, topSize, bottomSize, jacketSize: v, shoeSize, beltSize });
               }}
               className="w-full rounded border border-[#D8D0C0] bg-white px-2.5 py-1.5 font-mono text-xs text-[#0F1D32]"
             >
@@ -147,7 +151,7 @@ export function InterviewKitsClient({
               onChange={(e) => {
                 const v = e.target.value;
                 setTopSize(v);
-                void recompute({ tier, topSize: v, bottomSize, jacketSize, footwearSize });
+                void recompute({ tier, topSize: v, bottomSize, jacketSize, shoeSize, beltSize });
               }}
               className="w-full rounded border border-[#D8D0C0] bg-white px-2.5 py-1.5 font-mono text-xs text-[#0F1D32]"
             >
@@ -168,7 +172,7 @@ export function InterviewKitsClient({
               onChange={(e) => {
                 const v = e.target.value;
                 setBottomSize(v);
-                void recompute({ tier, topSize, bottomSize: v, jacketSize, footwearSize });
+                void recompute({ tier, topSize, bottomSize: v, jacketSize, shoeSize, beltSize });
               }}
               className="w-full rounded border border-[#D8D0C0] bg-white px-2.5 py-1.5 font-mono text-xs text-[#0F1D32]"
             >
@@ -182,19 +186,40 @@ export function InterviewKitsClient({
           </div>
           <div>
             <label className="block font-mono text-[10px] uppercase text-[#5C6776] mb-1">
-              Shoes / Belt
+              Dress Shoes
             </label>
             <select
-              value={footwearSize}
+              value={shoeSize}
               onChange={(e) => {
                 const v = e.target.value;
-                setFootwearSize(v);
-                void recompute({ tier, topSize, bottomSize, jacketSize, footwearSize: v });
+                setShoeSize(v);
+                void recompute({ tier, topSize, bottomSize, jacketSize, shoeSize: v, beltSize });
               }}
               className="w-full rounded border border-[#D8D0C0] bg-white px-2.5 py-1.5 font-mono text-xs text-[#0F1D32]"
             >
               <option value="">Any in-stock</option>
-              {availableSizes.footwear.map((s) => (
+              {availableSizes.shoes.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block font-mono text-[10px] uppercase text-[#5C6776] mb-1">
+              Belt (Optional)
+            </label>
+            <select
+              value={beltSize}
+              onChange={(e) => {
+                const v = e.target.value;
+                setBeltSize(v);
+                void recompute({ tier, topSize, bottomSize, jacketSize, shoeSize, beltSize: v });
+              }}
+              className="w-full rounded border border-[#D8D0C0] bg-white px-2.5 py-1.5 font-mono text-xs text-[#0F1D32]"
+            >
+              <option value="">Any in-stock</option>
+              {availableSizes.belt.map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
@@ -219,13 +244,13 @@ export function InterviewKitsClient({
         </div>
         <div className="rounded-lg border border-[#E2DCD0] bg-white p-4">
           <div className="font-mono text-[10px] uppercase tracking-wider text-[#5C6776]">
-            Slots Filled
+            Required Slots
           </div>
           <div className="font-mono text-2xl font-semibold text-[#0F1D32] mt-1 tabular-nums">
-            {kit.filledCount} / {kit.totalSlots}
+            {kit.requiredFilledCount} / {kit.requiredTotalCount}
           </div>
           <div className="font-mono text-[11px] text-[#5C6776]">
-            {kit.degraded ? "Partial inventory" : "Complete kit"}
+            {kit.filledCount} / {kit.totalSlots} incl. optional belt
           </div>
         </div>
         <div className="rounded-lg border border-[#E2DCD0] bg-white p-4">
@@ -257,10 +282,10 @@ export function InterviewKitsClient({
         <div className="rounded-lg border border-[#D97706]/40 bg-[#FEF3C7]/60 p-4 flex items-start gap-3 text-xs text-[#92400E]">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <div>
-            <span className="font-semibold">Partial kit notice:</span> One or more slots did not
-            have enough eligible in-scope, in-stock inventory fitting the selected size and budget
-            constraints. Tape &amp; Tailor leaves those slots open instead of forcing off-category
-            substitutes.
+            <span className="font-semibold">Partial kit notice:</span> One or more required slots
+            did not have enough compliant in-stock inventory meeting the neutral palette, formality
+            floor, color-pairing rules, and budget cap. Tape &amp; Tailor leaves those slots open
+            instead of relaxing quality or formality rules.
           </div>
         </div>
       )}
@@ -274,13 +299,25 @@ export function InterviewKitsClient({
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#EDE7DB]">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Briefcase className="w-4 h-4 text-[#B8924A]" />
                   <h2 className="font-serif text-lg font-semibold text-[#0F1D32]">
                     {entry.slot.label}
                   </h2>
+                  <span
+                    className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${
+                      entry.slot.required
+                        ? "bg-[#0F1D32]/10 text-[#0F1D32]"
+                        : "bg-[#EFEAE0] text-[#5C6776]"
+                    }`}
+                  >
+                    {entry.slot.required ? "Required" : "Optional"}
+                  </span>
+                  <span className="rounded bg-[#FAF5E8] border border-[#E5C98B]/50 px-1.5 py-0.5 font-mono text-[10px] text-[#7A6338]">
+                    Min formality: {entry.minFormality}
+                  </span>
                 </div>
-                <p className="text-xs text-[#5C6776]">{entry.slot.description}</p>
+                <p className="text-xs text-[#5C6776] mt-0.5">{entry.slot.description}</p>
               </div>
               <span
                 className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider self-start sm:self-center ${
@@ -292,7 +329,7 @@ export function InterviewKitsClient({
                 {entry.status === "filled" ? (
                   <>
                     <CheckCircle2 className="w-3 h-3" />
-                    Selected ({entry.eligibleCount} eligible)
+                    Selected ({entry.eligibleCount} compliant)
                   </>
                 ) : (
                   "Not enough in-scope inventory yet"
@@ -328,6 +365,16 @@ export function InterviewKitsClient({
                     </span>
                     {entry.item.subcategory && (
                       <span className="text-xs text-[#7A8490]">· {entry.item.subcategory}</span>
+                    )}
+                    {entry.matchedColor && (
+                      <span className="rounded bg-[#EFEAE0] px-1.5 py-0.5 font-mono text-[10px] text-[#0F1D32]">
+                        Color: {entry.matchedColor}
+                      </span>
+                    )}
+                    {entry.itemFormality && (
+                      <span className="rounded bg-[#E8F3EC] px-1.5 py-0.5 font-mono text-[10px] text-[#14532D]">
+                        Formality: {entry.itemFormality}
+                      </span>
                     )}
                   </div>
 

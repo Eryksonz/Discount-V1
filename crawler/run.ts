@@ -70,9 +70,12 @@ async function main() {
   const brandArg = parseArg("--brand=");
   const modeArg = (parseArg("--mode=") ?? "manual") as "baseline" | "high-frequency" | "manual";
   const maxProductsArg = parseArg("--max=");
+  const offsetArg = parseArg("--offset=");
   const dryRun = process.argv.includes("--dry-run");
-  const forceFull = process.argv.includes("--force-full");
+  const forceRefresh =
+    process.argv.includes("--force-refresh") || process.argv.includes("--force-full");
   const maxProducts = maxProductsArg ? Number(maxProductsArg) : undefined;
+  const offset = offsetArg ? Math.max(0, Number(offsetArg)) : 0;
 
   let targetBrands: string[];
   if (brandArg) {
@@ -90,7 +93,7 @@ async function main() {
   }
 
   console.log(
-    `[Tape & Tailor Crawler] mode=${modeArg} dryRun=${dryRun} forceFull=${forceFull} cap=${maxProducts ?? "brand-config-default"} brands=${targetBrands.join(", ")}`
+    `[Tape & Tailor Crawler] mode=${modeArg} dryRun=${dryRun} forceRefresh=${forceRefresh} offset=${offset} cap=${maxProducts ?? "brand-config-default"} brands=${targetBrands.join(", ")}`
   );
 
   const results = [];
@@ -99,8 +102,9 @@ async function main() {
       brandSlug: slug,
       mode: modeArg,
       maxProducts,
+      offset,
       dryRun,
-      forceFull,
+      forceRefresh,
     });
     results.push(summary);
     const expectedStr =

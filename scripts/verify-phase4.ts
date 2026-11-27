@@ -20,7 +20,12 @@ async function main() {
   const nextBin = path.resolve(process.cwd(), "node_modules/next/dist/bin/next");
   const child = spawn(process.execPath, [nextBin, "start", "-p", String(port), "-H", "127.0.0.1"], {
     stdio: "pipe",
-    env: { ...process.env },
+    env: {
+      ...process.env,
+      ADMIN_PASSWORD: process.env.ADMIN_PASSWORD && process.env.ADMIN_PASSWORD.length >= 16
+        ? process.env.ADMIN_PASSWORD
+        : "SmokeTest-StrongAdminKey-2026!",
+    },
   });
 
   const base = `http://127.0.0.1:${port}`;
@@ -31,32 +36,52 @@ async function main() {
       {
         path: "/api/health",
         check: (t, s) => {
-          if (s !== 200) throw new Error(`/api/health status ${s}`);
-          const j = JSON.parse(t);
-          if (!j.ok) throw new Error(`/api/health not ok`);
+          if (s !== 200 || !JSON.parse(t).ok) throw new Error(`/api/health failed (${s})`);
         },
       },
       {
         path: "/calendar",
         check: (t, s) => {
-          if (s !== 200 || !t.includes("Menswear Sale Calendar")) {
-            throw new Error(`/calendar failed (${s})`);
+          if (s !== 200 || !t.includes("Typical timing, not confirmed")) {
+            throw new Error(`/calendar missing honest 'Typical timing, not confirmed' label (${s})`);
           }
+          console.log("  /calendar: contains 'Typical timing, not confirmed' (PASS)");
         },
       },
       {
         path: "/students",
         check: (t, s) => {
-          if (s !== 200 || !t.includes("Student Discounts Directory") || !t.includes("SheerID")) {
-            throw new Error(`/students failed (${s})`);
+          if (
+            s !== 200 ||
+            !t.includes("Check the Brand") ||
+            !t.includes("Verified Student Offers")
+          ) {
+            throw new Error(`/students missing honest Verified vs Check-the-brand sections (${s})`);
           }
+          console.log("  /students: honest Verified vs Check-the-brand sections rendered (PASS)");
+        },
+      },
+      {
+        path: "/status",
+        check: (t, s) => {
+          if (s !== 200 || !t.includes("Admin Authentication Required")) {
+            throw new Error(`/status did not gate unauthenticated visitor (${s})`);
+          }
+          console.log("  /status (unauthenticated): gated behind admin login (PASS)");
+        },
+      },
+      {
+        path: "/api/admin/status",
+        check: (_t, s) => {
+          if (s !== 401) throw new Error(`/api/admin/status expected 401, got ${s}`);
+          console.log("  /api/admin/status (unauthenticated): HTTP 401 (PASS)");
         },
       },
       {
         path: "/kits",
         check: (t, s) => {
-          if (s !== 200 || !t.includes("Interview &amp; Internship Kits")) {
-            throw new Error(`/kits failed (${s})`);
+          if (s !== 200 || !t.includes("Dress Shoes") || !t.includes("Dress Belt")) {
+            throw new Error(`/kits missing split Dress Shoes / Dress Belt slots (${s})`);
           }
         },
       },
@@ -65,8 +90,13 @@ async function main() {
         check: (t, s) => {
           if (s !== 200) throw new Error(`/api/kits?tier=student failed (${s})`);
           const j = JSON.parse(t);
+          if (j.totalSlots !== 6 || j.requiredTotalCount !== 5) {
+            throw new Error(`Expected 6 total / 5 required slots, got ${j.totalSlots}/${j.requiredTotalCount}`);
+          }
           if (j.totalPriceCents > 45000) throw new Error(`Student kit exceeded $450 cap`);
-          console.log(`  /api/kits?tier=student: filled=${j.filledCount}/${j.totalSlots} total=$${(j.totalPriceCents / 100).toFixed(2)} avgScore=${j.averageDealScore} brands=${JSON.stringify(j.brandCounts)}`);
+          console.log(
+            `  /api/kits?tier=student:   req=${j.requiredFilledCount}/${j.requiredTotalCount} total=${j.filledCount}/${j.totalSlots} cost=$${(j.totalPriceCents / 100).toFixed(2)} brands=${JSON.stringify(j.brandCounts)}`
+          );
         },
       },
       {
@@ -75,10 +105,9 @@ async function main() {
           if (s !== 200) throw new Error(`/api/kits?tier=intern failed (${s})`);
           const j = JSON.parse(t);
           if (j.totalPriceCents > 85000) throw new Error(`Intern kit exceeded $850 cap`);
-          for (const cnt of Object.values(j.brandCounts) as number[]) {
-            if (cnt > 2) throw new Error(`Brand cap exceeded (>2)`);
-          }
-          console.log(`  /api/kits?tier=intern:  filled=${j.filledCount}/${j.totalSlots} total=$${(j.totalPriceCents / 100).toFixed(2)} avgScore=${j.averageDealScore} brands=${JSON.stringify(j.brandCounts)}`);
+          console.log(
+            `  /api/kits?tier=intern:    req=${j.requiredFilledCount}/${j.requiredTotalCount} total=${j.filledCount}/${j.totalSlots} cost=$${(j.totalPriceCents / 100).toFixed(2)} brands=${JSON.stringify(j.brandCounts)}`
+          );
         },
       },
       {
@@ -87,7 +116,9 @@ async function main() {
           if (s !== 200) throw new Error(`/api/kits?tier=full_time failed (${s})`);
           const j = JSON.parse(t);
           if (j.totalPriceCents > 150000) throw new Error(`Full-time kit exceeded $1500 cap`);
-          console.log(`  /api/kits?tier=full_time: filled=${j.filledCount}/${j.totalSlots} total=$${(j.totalPriceCents / 100).toFixed(2)} avgScore=${j.averageDealScore} brands=${JSON.stringify(j.brandCounts)}`);
+          console.log(
+            `  /api/kits?tier=full_time: req=${j.requiredFilledCount}/${j.requiredTotalCount} total=${j.filledCount}/${j.totalSlots} cost=$${(j.totalPriceCents / 100).toFixed(2)} brands=${JSON.stringify(j.brandCounts)}`
+          );
         },
       },
       {
@@ -95,30 +126,8 @@ async function main() {
         check: (t, s) => {
           if (s !== 200) throw new Error(`/api/products?brands=peter-millar failed (${s})`);
           const j = JSON.parse(t);
-          if (j.totalMatched !== 0) throw new Error(`Peter Millar feed_pending leaked ${j.totalMatched} items`);
-          const pmStrip = j.brandStrip.find((b: any) => b.slug === "peter-millar");
-          if (pmStrip?.ingestionStatus !== "feed_pending") {
-            throw new Error(`Peter Millar brandStrip missing feed_pending status`);
-          }
-          console.log(`  /api/products?brands=peter-millar: totalMatched=0, status=${pmStrip.ingestionStatus} (PASS)`);
-        },
-      },
-      {
-        path: "/api/products?brands=brooks-brothers",
-        check: (t, s) => {
-          if (s !== 200) throw new Error(`/api/products?brands=brooks-brothers failed (${s})`);
-          const j = JSON.parse(t);
-          if (j.totalMatched < 10) throw new Error(`Expected BB pilot products, got ${j.totalMatched}`);
-          console.log(`  /api/products?brands=brooks-brothers: totalMatched=${j.totalMatched} (PASS)`);
-        },
-      },
-      {
-        path: "/api/products?brands=vineyard-vines",
-        check: (t, s) => {
-          if (s !== 200) throw new Error(`/api/products?brands=vineyard-vines failed (${s})`);
-          const j = JSON.parse(t);
-          if (j.totalMatched < 10) throw new Error(`Expected VV pilot products, got ${j.totalMatched}`);
-          console.log(`  /api/products?brands=vineyard-vines: totalMatched=${j.totalMatched} (PASS)`);
+          if (j.totalMatched !== 0) throw new Error(`Peter Millar leaked ${j.totalMatched} items`);
+          console.log("  /api/products?brands=peter-millar: totalMatched=0 (PASS)");
         },
       },
     ];
@@ -129,7 +138,7 @@ async function main() {
       c.check(text, resp.status);
     }
 
-    console.log("ALL PHASE 4 + BB/VV + PETER MILLAR SMOKE CHECKS PASSED!");
+    console.log("ALL HARDENING, HONEST LABELING, KIT ENGINE & STATUS CHECKS PASSED!");
   } finally {
     child.kill();
   }

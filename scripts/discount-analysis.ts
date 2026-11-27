@@ -7,7 +7,12 @@ config({ path: ".env" });
 async function main() {
   const sql = postgres(process.env.DATABASE_URL!, { max: 1 });
 
-  const brands = ["faherty", "bonobos"];
+  const dataSourceCounts = await sql`
+    SELECT data_source, count(*)::int AS cnt FROM products GROUP BY data_source ORDER BY data_source
+  `;
+  console.log("Production DB data_source counts:", dataSourceCounts);
+
+  const brands = ["faherty", "bonobos", "brooks-brothers", "vineyard-vines"];
   for (const brand of brands) {
     const [summary] = await sql`
       SELECT

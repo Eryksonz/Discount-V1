@@ -83,6 +83,7 @@ interface SaleEventRow {
   endsAt: string;
   typicalDiscountNote: string;
   triggersHighFrequency: boolean;
+  confirmed?: boolean;
 }
 
 interface AdminData {
@@ -369,6 +370,24 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
     }
   }
 
+  async function handleToggleConfirmSaleEvent(id: number, nextConfirmed: boolean) {
+    setBusyId(`conf-ev-${id}`);
+    try {
+      await fetch("/api/admin/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "set_sale_event_confirmed",
+          id,
+          confirmed: nextConfirmed,
+        }),
+      });
+      await loadData();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (!authenticated) {
     return (
       <main className="min-h-screen bg-[#FAF8F3] flex items-center justify-center p-4">
@@ -433,6 +452,12 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
             <h1 className="font-serif text-2xl font-semibold">Tape &amp; Tailor Admin</h1>
           </div>
           <div className="flex items-center gap-3">
+            <Link
+              href="/status"
+              className="font-mono text-xs text-[#E5C98B] hover:text-white"
+            >
+              /status
+            </Link>
             <Link
               href="/"
               className="font-mono text-xs text-[#CBD5E1] hover:text-white"
@@ -895,21 +920,40 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
                               LIVE
                             </span>
                           )}
+                          <span
+                            className={`ml-1 rounded px-1.5 py-0.5 font-mono text-[10px] ${
+                              ev.confirmed
+                                ? "bg-[#E8F3EC] text-[#14532D]"
+                                : "bg-[#FEF3C7] text-[#92400E]"
+                            }`}
+                          >
+                            {ev.confirmed ? "CONFIRMED" : "UNCONFIRMED"}
+                          </span>
                         </div>
                         <div className="font-mono text-[10px] text-[#5C6776]">
                           {ev.brandSlug ?? "All brands"} · {new Date(ev.startsAt).toLocaleDateString()}{" "}
                           → {new Date(ev.endsAt).toLocaleDateString()}
                         </div>
                       </div>
-                      {isLive && (
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <button
                           type="button"
-                          onClick={() => void handleExpireSaleEvent(ev.id)}
-                          className="rounded border border-[#8C3426] px-2 py-1 font-mono text-[10px] text-[#8C3426]"
+                          disabled={busyId === `conf-ev-${ev.id}`}
+                          onClick={() => void handleToggleConfirmSaleEvent(ev.id, !ev.confirmed)}
+                          className="rounded border border-[#0F1D32]/40 px-2 py-1 font-mono text-[10px] text-[#0F1D32] hover:bg-[#FAF8F3]"
                         >
-                          End Now
+                          {ev.confirmed ? "Unconfirm" : "Confirm"}
                         </button>
-                      )}
+                        {isLive && (
+                          <button
+                            type="button"
+                            onClick={() => void handleExpireSaleEvent(ev.id)}
+                            className="rounded border border-[#8C3426] px-2 py-1 font-mono text-[10px] text-[#8C3426]"
+                          >
+                            End Now
+                          </button>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

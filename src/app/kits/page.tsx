@@ -11,10 +11,11 @@ export default async function InterviewKitsPage() {
   const { candidates, source, unclassifiedCount } = await loadKitCandidates();
   const initialKit = buildInterviewKit(candidates, { tierId: "intern" });
 
-  const collectSizes = (cats: string[]) => {
+  const collectSizes = (cats: string[], subs?: string[]) => {
     const set = new Set<string>();
     for (const c of candidates) {
       if (c.category && cats.includes(c.category)) {
+        if (subs && (!c.subcategory || !subs.includes(c.subcategory))) continue;
         for (const s of c.sizes) set.add(s);
       }
     }
@@ -25,7 +26,8 @@ export default async function InterviewKitsPage() {
     jacket: collectSizes(["suits", "blazers-sport-coats"]),
     top: collectSizes(["dress-shirts-ocbds", "quarter-zips-pullovers"]),
     bottom: collectSizes(["chinos-dress-pants", "performance-trousers"]),
-    footwear: collectSizes(["shoes-belts"]),
+    shoes: collectSizes(["shoes-belts"], ["Oxford Dress Shoe", "Derby / Monk Strap", "Penny Loafer"]),
+    belt: collectSizes(["shoes-belts"], ["Dress Belt"]),
   };
 
   return (
@@ -48,8 +50,9 @@ export default async function InterviewKitsPage() {
           </h1>
           <p className="text-sm text-[#4B5869] max-w-2xl leading-relaxed">
             Built purely from live, in-stock catalog snapshots—zero AI or sponsored picks. Our
-            solver maximizes Deal Score under your budget cap, limits any single brand to at most 2
-            items, and leaves a slot unfilled if not enough in-scope inventory is available yet.
+            solver enforces neutral color palettes, leather &amp; tailoring pairing rules, minimum
+            slot formality per tier, max 2 items per brand, and your budget cap. When no compliant
+            item exists, the slot stays open rather than relaxing rules.
           </p>
         </header>
 

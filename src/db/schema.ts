@@ -255,6 +255,8 @@ export const saleEvents = pgTable("sale_events", {
   endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
   typicalDiscountNote: text("typical_discount_note").notNull(),
   triggersHighFrequency: boolean("triggers_high_frequency").notNull().default(true),
+  confirmed: boolean("confirmed").notNull().default(false),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
 });
 
 export const studentPromos = pgTable("student_promos", {
@@ -264,6 +266,8 @@ export const studentPromos = pgTable("student_promos", {
   offerText: text("offer_text").notNull(),
   promoCode: text("promo_code"),
   terms: text("terms").notNull(),
-  verifiedAt: timestamp("verified_at", { withTimezone: true }).defaultNow().notNull(),
+  sourceUrl: text("source_url"),
+  verified: boolean("verified").notNull().default(false),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
   active: boolean("active").notNull().default(true),
 });

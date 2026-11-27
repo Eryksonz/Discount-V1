@@ -19,15 +19,19 @@ on:
           - baseline
           - high-frequency
           - manual
-      max_products:
-        description: "Optional safety-cap override per brand (leave blank for brand config default)"
-        required: false
-        default: ""
-      force_full:
-        description: "Force re-fetch of all discovered sitemap URLs ignoring 7-day freshness"
+      force_refresh:
+        description: "Sale-week override: ignore 7-day skip and re-fetch every in-stock product URL (still respects robots.txt & rate limits)"
         required: false
         default: false
         type: boolean
+      offset:
+        description: "Optional 0-based URL offset for splitting a forced pass across runs (e.g. 0, 600, 1200, 1800)"
+        required: false
+        default: "0"
+      max_products:
+        description: "Optional batch size / safety-cap override per brand (leave blank for brand config default)"
+        required: false
+        default: ""
 
 jobs:
   crawl:
@@ -66,12 +70,16 @@ jobs:
           if [ -n "${{ github.event.inputs.max_products }}" ]; then
             MAX_ARG="--max=${{ github.event.inputs.max_products }}"
           fi
+          OFFSET_ARG=""
+          if [ -n "${{ github.event.inputs.offset }}" ] && [ "${{ github.event.inputs.offset }}" != "0" ]; then
+            OFFSET_ARG="--offset=${{ github.event.inputs.offset }}"
+          fi
           FORCE_ARG=""
-          if [ "${{ github.event.inputs.force_full }}" = "true" ]; then
-            FORCE_ARG="--force-full"
+          if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
+            FORCE_ARG="--force-refresh"
           fi
           MODE="${{ github.event.inputs.mode || 'baseline' }}"
-          npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $MAX_ARG $FORCE_ARG
+          npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $OFFSET_ARG $MAX_ARG $FORCE_ARG
 
       - name: Evaluate deduplicated price-drop alerts
         env:
