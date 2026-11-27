@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { desc, eq } from "drizzle-orm";
+import { getAlertsMode, isSiteIndexingEnabled } from "@config/app";
 import { CATEGORY_BY_SLUG, OUT_OF_SCOPE_CATEGORY, type AllCategorySlug } from "@config/categories";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { isAdminAuthenticated } from "@/lib/admin/auth";
 import { classifyProduct, type CustomRuleDefinition } from "@/lib/classify";
+import { isRealtimeConfigured } from "@/lib/neon/realtime";
+import { isObjectStorageConfigured } from "@/lib/neon/storage";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +63,12 @@ export async function GET() {
         startedAt: schema.crawlRuns.startedAt,
         durationMs: schema.crawlRuns.durationMs,
         productsSeen: schema.crawlRuns.productsSeen,
+        urlsDiscovered: schema.crawlRuns.urlsDiscovered,
+        urlsFetched: schema.crawlRuns.urlsFetched,
+        urlsParsed: schema.crawlRuns.urlsParsed,
+        urlsSkippedFresh: schema.crawlRuns.urlsSkippedFresh,
+        urlsSkippedOos: schema.crawlRuns.urlsSkippedOos,
+        forcedRefresh: schema.crawlRuns.forcedRefresh,
         priceChanges: schema.crawlRuns.priceChanges,
         newProducts: schema.crawlRuns.newProducts,
         quarantinedCount: schema.crawlRuns.quarantinedCount,
@@ -93,6 +102,13 @@ export async function GET() {
     saleEvents,
     activeAlertsCount: activeAlerts.length,
     outboundClicksSampled: clickCountRows.length,
+    capabilities: {
+      githubDispatchConfigured: Boolean(process.env.GITHUB_TOKEN?.trim()),
+      realtimeConfigured: isRealtimeConfigured(),
+      objectStorageConfigured: isObjectStorageConfigured(),
+      alertsMode: getAlertsMode(),
+      siteIndexing: isSiteIndexingEnabled(),
+    },
   });
 }
 
@@ -448,13 +464,12 @@ export async function POST(request: NextRequest) {
     const ghRepo = process.env.GITHUB_REPO?.trim() || "Eryksonz/Discount-V1";
 
     if (!ghToken) {
-      return NextResponse.json(
-        {
-          error:
-            "GITHUB_TOKEN is not set on this server. Set GITHUB_TOKEN (with actions:write) in Vercel/env, or trigger 'Baseline Daily Crawl' manually in GitHub → Actions.",
-        },
-        { status: 503 }
-      );
+      return NextResponse.json({
+        ok: false,
+        configured: false,
+        message:
+          "Crawl Now dispatch is not configured (GITHUB_TOKEN unset). Trigger runs manually from GitHub → Actions.",
+      });
     }
 
     const res = await fetch(

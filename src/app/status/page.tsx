@@ -52,9 +52,11 @@ export default async function AdminStatusPage() {
     name: string;
     code: string;
     ingestionStatus: string;
-    circuitState: string;
     lastSuccessfulCrawlAt: string | null;
-    lastRunStatus: string | null;
+    lastRunDiscovered: number | null;
+    lastRunFetched: number | null;
+    lastRunParsed: number | null;
+    lastRunSkippedFresh: number | null;
     totalProducts: number;
     publicProducts: number;
     outOfScopeProducts: number;
@@ -91,16 +93,22 @@ export default async function AdminStatusPage() {
       sql`
         SELECT
           b.slug AS brand_slug,
-          b.circuit_state,
           MAX(cr.finished_at) FILTER (WHERE cr.status = 'completed') AS last_successful_crawl_at,
-          (
-            SELECT cr2.status FROM crawl_runs cr2
-            WHERE cr2.brand_id = b.id
-            ORDER BY cr2.started_at DESC LIMIT 1
-          ) AS last_run_status
+          latest.urls_discovered,
+          latest.urls_fetched,
+          latest.urls_parsed,
+          latest.urls_skipped_fresh
         FROM brands b
         LEFT JOIN crawl_runs cr ON cr.brand_id = b.id
-        GROUP BY b.id, b.slug, b.circuit_state
+        LEFT JOIN LATERAL (
+          SELECT urls_discovered, urls_fetched, urls_parsed, urls_skipped_fresh
+          FROM crawl_runs
+          WHERE brand_id = b.id
+          ORDER BY started_at DESC
+          LIMIT 1
+        ) latest ON TRUE
+        GROUP BY
+          b.id, b.slug, latest.urls_discovered, latest.urls_fetched, latest.urls_parsed, latest.urls_skipped_fresh
       `,
     ]);
 
@@ -123,11 +131,23 @@ export default async function AdminStatusPage() {
         name: b.name,
         code: b.code,
         ingestionStatus: b.ingestionStatus,
-        circuitState: c?.circuit_state ? String(c.circuit_state) : "active",
         lastSuccessfulCrawlAt: c?.last_successful_crawl_at
           ? new Date(String(c.last_successful_crawl_at)).toISOString()
           : null,
-        lastRunStatus: c?.last_run_status ? String(c.last_run_status) : null,
+        lastRunDiscovered:
+          c?.urls_discovered !== null && c?.urls_discovered !== undefined
+            ? Number(c.urls_discovered)
+            : null,
+        lastRunFetched:
+          c?.urls_fetched !== null && c?.urls_fetched !== undefined
+            ? Number(c.urls_fetched)
+            : null,
+        lastRunParsed:
+          c?.urls_parsed !== null && c?.urls_parsed !== undefined ? Number(c.urls_parsed) : null,
+        lastRunSkippedFresh:
+          c?.urls_skipped_fresh !== null && c?.urls_skipped_fresh !== undefined
+            ? Number(c.urls_skipped_fresh)
+            : null,
         totalProducts: Number(p?.total_products ?? 0),
         publicProducts: Number(p?.public_products ?? 0),
         outOfScopeProducts: Number(p?.out_of_scope_products ?? 0),
@@ -154,7 +174,7 @@ export default async function AdminStatusPage() {
               Admin Operational Status
             </div>
             <h1 className="font-serif text-3xl font-semibold text-[#0F1D32]">
-              Crawler &amp; Catalog Status
+              Crawler &amp; Catalog Coverage Status
             </h1>
           </div>
           <Link
@@ -210,18 +230,17 @@ export default async function AdminStatusPage() {
           </div>
         </div>
 
-        {/* Per-Brand Table */}
+        {/* Per-Brand Table with Crawl Coverage */}
         <div className="rounded-lg border border-[#E2DCD0] bg-white overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-[#FAF8F3] border-b border-[#E2DCD0] font-mono text-[10px] uppercase tracking-wider text-[#5C6776]">
               <tr>
                 <th className="px-4 py-3">Brand</th>
-                <th className="px-4 py-3">Ingestion</th>
+                <th className="px-4 py-3">Status</th>
                 <th className="px-4 py-3">Last Successful Crawl</th>
+                <th className="px-4 py-3 text-right">Last Run (Disc / Fetch / Parse / Skip)</th>
                 <th className="px-4 py-3 text-right">Total SKUs</th>
                 <th className="px-4 py-3 text-right">Public</th>
-                <th className="px-4 py-3 text-right">Out of Scope</th>
-                <th className="px-4 py-3 text-right">Unclassified</th>
                 <th className="px-4 py-3 text-right">Snapshots</th>
               </tr>
             </thead>
@@ -256,17 +275,16 @@ export default async function AdminStatusPage() {
                         })
                       : "—"}
                   </td>
+                  <td className="px-4 py-3 text-right font-mono text-[11px] tabular-nums text-[#3E4C5E]">
+                    {b.lastRunDiscovered !== null
+                      ? `${b.lastRunDiscovered} / ${b.lastRunFetched ?? "—"} / ${b.lastRunParsed ?? "—"} / ${b.lastRunSkippedFresh ?? 0}`
+                      : "—"}
+                  </td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums">
                     {b.totalProducts.toLocaleString()}
                   </td>
                   <td className="px-4 py-3 text-right font-mono tabular-nums text-[#14532D]">
                     {b.publicProducts.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums text-[#5C6776]">
-                    {b.outOfScopeProducts.toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono tabular-nums">
-                    {b.unclassifiedProducts.toLocaleString()}
                   </td>
                   <td className="px-4 py-3 text-right font-mono font-semibold tabular-nums text-[#0F1D32]">
                     {b.snapshotsCount.toLocaleString()}

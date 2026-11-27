@@ -2,7 +2,7 @@ name: Baseline Daily Crawl
 
 on:
   schedule:
-    # Daily baseline crawl at 06:00 UTC (Shopify full catalog + sitemap-incremental JSON-LD)
+    # Daily incremental baseline crawl at 06:00 UTC (never runs --force-refresh)
     - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
@@ -20,18 +20,24 @@ on:
           - high-frequency
           - manual
       force_refresh:
-        description: "Sale-week override: ignore 7-day skip and re-fetch every in-stock product URL (still respects robots.txt & rate limits)"
+        description: "Manual sale-week override only: ignore 7-day skip and re-fetch every in-stock URL (still respects robots.txt & rate limits)"
         required: false
         default: false
         type: boolean
       offset:
-        description: "Optional 0-based URL offset for splitting a forced pass across runs (e.g. 0, 600, 1200, 1800)"
+        description: "Optional 0-based URL offset for splitting a manual forced pass across runs (e.g. 0, 600, 1200, 1800)"
         required: false
         default: "0"
       max_products:
         description: "Optional batch size / safety-cap override per brand (leave blank for brand config default)"
         required: false
         default: ""
+
+# Queue concurrent runs targeting the same brand instead of overlapping and doubling request rate.
+# Runs for different brands use distinct concurrency keys and proceed independently.
+concurrency:
+  group: crawl-${{ inputs.brand || 'all' }}
+  cancel-in-progress: false
 
 jobs:
   crawl:
@@ -62,24 +68,29 @@ jobs:
           AWS_ENDPOINT_URL_S3: ${{ secrets.AWS_ENDPOINT_URL_S3 }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
-          BRAND_ARG=""
-          if [ -n "${{ github.event.inputs.brand }}" ]; then
-            BRAND_ARG="--brand=${{ github.event.inputs.brand }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            BRAND_ARG=""
+            if [ -n "${{ github.event.inputs.brand }}" ]; then
+              BRAND_ARG="--brand=${{ github.event.inputs.brand }}"
+            fi
+            MAX_ARG=""
+            if [ -n "${{ github.event.inputs.max_products }}" ]; then
+              MAX_ARG="--max=${{ github.event.inputs.max_products }}"
+            fi
+            OFFSET_ARG=""
+            if [ -n "${{ github.event.inputs.offset }}" ] && [ "${{ github.event.inputs.offset }}" != "0" ]; then
+              OFFSET_ARG="--offset=${{ github.event.inputs.offset }}"
+            fi
+            FORCE_ARG=""
+            if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
+              FORCE_ARG="--force-refresh"
+            fi
+            MODE="${{ github.event.inputs.mode || 'manual' }}"
+            npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $OFFSET_ARG $MAX_ARG $FORCE_ARG
+          else
+            # Scheduled cron runs ALWAYS use normal incremental baseline mode (never --force-refresh)
+            npx tsx crawler/run.ts --mode=baseline
           fi
-          MAX_ARG=""
-          if [ -n "${{ github.event.inputs.max_products }}" ]; then
-            MAX_ARG="--max=${{ github.event.inputs.max_products }}"
-          fi
-          OFFSET_ARG=""
-          if [ -n "${{ github.event.inputs.offset }}" ] && [ "${{ github.event.inputs.offset }}" != "0" ]; then
-            OFFSET_ARG="--offset=${{ github.event.inputs.offset }}"
-          fi
-          FORCE_ARG=""
-          if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
-            FORCE_ARG="--force-refresh"
-          fi
-          MODE="${{ github.event.inputs.mode || 'baseline' }}"
-          npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $OFFSET_ARG $MAX_ARG $FORCE_ARG
 
       - name: Evaluate price-drop alerts (no-op when ALERTS_MODE=local)
         env:

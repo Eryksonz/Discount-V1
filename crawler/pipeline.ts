@@ -604,6 +604,16 @@ export async function runBrandCrawl(params: {
         ? crawlRes.discoveredCatalogCount
         : crawlRes.products.length;
 
+    const urlsDiscovered =
+      crawlRes.discoveredCatalogCount !== undefined
+        ? crawlRes.discoveredCatalogCount
+        : crawlRes.products.length;
+    const urlsFetched =
+      crawlRes.urlsFetched !== undefined ? crawlRes.urlsFetched : crawlRes.products.length;
+    const urlsParsed = crawlRes.products.length;
+    const urlsSkippedFresh = crawlRes.incrementalStats?.skippedFresh ?? 0;
+    const urlsSkippedOos = crawlRes.incrementalStats?.skippedOutOfStock ?? 0;
+
     await db.insert(schema.crawlRuns).values({
       brandId: brandRow.id,
       mode: params.mode,
@@ -612,6 +622,12 @@ export async function runBrandCrawl(params: {
       finishedAt: new Date(),
       durationMs,
       productsSeen: effectiveCatalogCount,
+      urlsDiscovered,
+      urlsFetched,
+      urlsParsed,
+      urlsSkippedFresh,
+      urlsSkippedOos,
+      forcedRefresh: Boolean(params.forceRefresh),
       priceChanges,
       newProducts,
       quarantinedCount,

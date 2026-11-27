@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSqlClient } from "@/db";
-import { verifyObjectStorageRoundTrip } from "@/lib/neon/storage";
+import { isObjectStorageConfigured, verifyObjectStorageRoundTrip } from "@/lib/neon/storage";
 import { isRealtimeConfigured, sealRecentCrawlRunsQuery } from "@/lib/neon/realtime";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const isProd = process.env.NODE_ENV === "production";
 
-  // 1. Postgres check
+  // 1. Postgres check (REQUIRED)
   const sql = getSqlClient();
   let postgresStatus: { configured: boolean; ok: boolean; productCount?: number; error?: string } = {
     configured: Boolean(sql),
@@ -29,15 +29,27 @@ export async function GET() {
     postgresStatus.error = "DATABASE_URL not configured";
   }
 
-  // 2. Neon Object Storage round-trip check
-  const storageStatus = await verifyObjectStorageRoundTrip();
+  // 2. Neon Object Storage (OPTIONAL — graceful skip when unconfigured)
+  const storageConfigured = isObjectStorageConfigured();
+  const storageStatus = storageConfigured
+    ? await verifyObjectStorageRoundTrip()
+    : { configured: false, ok: true, status: "not_configured" as const };
 
-  // 3. Neon Realtime query sealing check
-  let realtimeStatus: { configured: boolean; ok: boolean; url?: string; error?: string } = {
-    configured: isRealtimeConfigured(),
-    ok: false,
+  // 3. Neon Realtime (OPTIONAL — graceful skip when unconfigured)
+  const realtimeConfigured = isRealtimeConfigured();
+  let realtimeStatus: {
+    configured: boolean;
+    ok: boolean;
+    status?: "not_configured";
+    url?: string;
+    error?: string;
+  } = {
+    configured: realtimeConfigured,
+    ok: !realtimeConfigured,
+    ...(realtimeConfigured ? {} : { status: "not_configured" as const }),
   };
-  if (realtimeStatus.configured) {
+
+  if (realtimeConfigured) {
     try {
       const sealed = await sealRecentCrawlRunsQuery();
       realtimeStatus = {
@@ -48,21 +60,26 @@ export async function GET() {
     } catch (err) {
       realtimeStatus = { configured: true, ok: false, error: (err as Error).message };
     }
-  } else {
-    realtimeStatus.error = "NEON_REALTIME_URL / NEON_REALTIME_SECRET not configured";
   }
 
-  const allOk = postgresStatus.ok && storageStatus.ok && realtimeStatus.ok;
+  // Only Postgres is required; optional services must be healthy only when configured
+  const allOk =
+    postgresStatus.ok &&
+    (!storageConfigured || storageStatus.ok) &&
+    (!realtimeConfigured || realtimeStatus.ok);
 
-  // In production, never leak internal service URLs, bucket names, row counts, or error details
   if (isProd) {
     return NextResponse.json(
       {
         ok: allOk,
         services: {
           postgres: { ok: postgresStatus.ok },
-          objectStorage: { ok: storageStatus.ok },
-          realtime: { ok: realtimeStatus.ok },
+          objectStorage: storageConfigured
+            ? { configured: true, ok: storageStatus.ok }
+            : { configured: false, status: "not_configured" },
+          realtime: realtimeConfigured
+            ? { configured: true, ok: realtimeStatus.ok }
+            : { configured: false, status: "not_configured" },
         },
       },
       { status: allOk ? 200 : 503 }

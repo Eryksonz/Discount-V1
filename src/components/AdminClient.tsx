@@ -33,6 +33,12 @@ interface CrawlRunRow {
   startedAt: string;
   durationMs: number;
   productsSeen: number;
+  urlsDiscovered?: number | null;
+  urlsFetched?: number | null;
+  urlsParsed?: number | null;
+  urlsSkippedFresh?: number | null;
+  urlsSkippedOos?: number | null;
+  forcedRefresh?: boolean;
   priceChanges: number;
   newProducts: number;
   quarantinedCount: number;
@@ -103,6 +109,13 @@ interface AdminData {
     keywords: string[];
   }>;
   outboundClicksSampled: number;
+  capabilities?: {
+    githubDispatchConfigured: boolean;
+    realtimeConfigured: boolean;
+    objectStorageConfigured: boolean;
+    alertsMode: string;
+    siteIndexing: boolean;
+  };
 }
 
 export function AdminClient({ initialAuthenticated }: { initialAuthenticated: boolean }) {
@@ -1024,6 +1037,7 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
                     <th className="p-2.5">Mode</th>
                     <th className="p-2.5">Status</th>
                     <th className="p-2.5">Seen</th>
+                    <th className="p-2.5">Disc / Fetch / Parse / Skip</th>
                     <th className="p-2.5">New</th>
                     <th className="p-2.5">Changes</th>
                     <th className="p-2.5">Quarantined</th>
@@ -1034,7 +1048,7 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
                 <tbody className="divide-y divide-[#EFEAE0]">
                   {data.crawlRuns.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="p-4 text-center text-[#5C6776]">
+                      <td colSpan={10} className="p-4 text-center text-[#5C6776]">
                         No crawl runs logged yet. Run `npm run crawl` to execute pilot adapters.
                       </td>
                     </tr>
@@ -1042,9 +1056,21 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
                     data.crawlRuns.map((run) => (
                       <tr key={run.id}>
                         <td className="p-2.5 font-semibold">{run.brandName}</td>
-                        <td className="p-2.5">{run.mode}</td>
+                        <td className="p-2.5">
+                          {run.mode}
+                          {run.forcedRefresh && (
+                            <span className="ml-1 rounded bg-[#FEF3C7] px-1 py-0.5 text-[9px] text-[#92400E]">
+                              FORCED
+                            </span>
+                          )}
+                        </td>
                         <td className="p-2.5">{run.status}</td>
                         <td className="p-2.5 tabular-nums">{run.productsSeen}</td>
+                        <td className="p-2.5 tabular-nums text-[#3E4C5E]">
+                          {run.urlsDiscovered !== null && run.urlsDiscovered !== undefined
+                            ? `${run.urlsDiscovered} / ${run.urlsFetched ?? "—"} / ${run.urlsParsed ?? "—"} / ${run.urlsSkippedFresh ?? 0}`
+                            : "—"}
+                        </td>
                         <td className="p-2.5 tabular-nums">{run.newProducts}</td>
                         <td className="p-2.5 tabular-nums">{run.priceChanges}</td>
                         <td className="p-2.5 tabular-nums">{run.quarantinedCount}</td>
@@ -1064,14 +1090,23 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
                 <h2 className="font-mono text-xs font-semibold uppercase tracking-wider">
                   Brand Crawl Frequency &amp; Circuit Breakers
                 </h2>
-                <button
-                  type="button"
-                  disabled={busyId === "crawl-all"}
-                  onClick={() => void handleCrawlNow("")}
-                  className="rounded bg-[#14532D] hover:bg-[#0F4C29] px-3 py-1.5 font-mono text-xs font-semibold text-white"
-                >
-                  {busyId === "crawl-all" ? "Dispatching..." : "Crawl Now (All Enabled Brands)"}
-                </button>
+                {data.capabilities?.githubDispatchConfigured ? (
+                  <button
+                    type="button"
+                    disabled={busyId === "crawl-all"}
+                    onClick={() => void handleCrawlNow("")}
+                    className="rounded bg-[#14532D] hover:bg-[#0F4C29] px-3 py-1.5 font-mono text-xs font-semibold text-white"
+                  >
+                    {busyId === "crawl-all" ? "Dispatching..." : "Crawl Now (All Enabled Brands)"}
+                  </button>
+                ) : (
+                  <span
+                    className="rounded border border-[#D8D0C0] bg-[#FAF8F3] px-3 py-1.5 font-mono text-[11px] text-[#5C6776]"
+                    title="Set GITHUB_TOKEN to trigger workflows from /admin, or run directly from GitHub Actions"
+                  >
+                    Crawl Now: Not configured (use GitHub Actions)
+                  </span>
+                )}
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                 {data.brands.map((b) => (
@@ -1102,14 +1137,20 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
                         <option value="high_freq">High-Freq</option>
                         <option value="paused">Paused</option>
                       </select>
-                      <button
-                        type="button"
-                        disabled={busyId === `crawl-${b.slug}`}
-                        onClick={() => void handleCrawlNow(b.slug)}
-                        className="rounded border border-[#0F1D32] px-2 py-1 font-mono text-[10px] text-[#0F1D32] hover:bg-[#FAF8F3]"
-                      >
-                        Run
-                      </button>
+                      {data.capabilities?.githubDispatchConfigured ? (
+                        <button
+                          type="button"
+                          disabled={busyId === `crawl-${b.slug}`}
+                          onClick={() => void handleCrawlNow(b.slug)}
+                          className="rounded border border-[#0F1D32] px-2 py-1 font-mono text-[10px] text-[#0F1D32] hover:bg-[#FAF8F3]"
+                        >
+                          Run
+                        </button>
+                      ) : (
+                        <span className="rounded border border-[#E2DCD0] bg-[#FAF8F3] px-2 py-1 font-mono text-[10px] text-[#7A8490]">
+                          Not configured
+                        </span>
+                      )}
                       {b.circuitState !== "active" && (
                         <button
                           type="button"

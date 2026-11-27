@@ -23,3 +23,15 @@ export function isClickLoggingEnabled(
   const raw = (env.OUTBOUND_CLICK_LOGGING ?? "true").trim().toLowerCase();
   return raw !== "false" && raw !== "0" && raw !== "off";
 }
+
+/**
+ * Search-engine indexing control:
+ * - "off" (default): robots.txt disallows all, <meta name="robots" content="noindex,nofollow">, and X-Robots-Tag header.
+ * - "on": normal robots.txt + dynamic /sitemap.xml listing public pages and in-scope product pages.
+ */
+export function isSiteIndexingEnabled(
+  env: Record<string, string | undefined> = process.env
+): boolean {
+  const raw = (env.SITE_INDEXING ?? "off").trim().toLowerCase();
+  return raw === "on" || raw === "true" || raw === "1";
+}

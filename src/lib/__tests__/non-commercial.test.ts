@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { getAlertsMode, isClickLoggingEnabled } from "@config/app";
+import { getAlertsMode, isClickLoggingEnabled, isSiteIndexingEnabled } from "@config/app";
 import { validateAndBuildOutboundUrl } from "@config/brands";
 import { evaluateLocalPriceTarget } from "@/lib/watchlist";
 
-describe("Non-commercial config, direct redirects, and local watchlist price targets", () => {
+describe("Non-commercial config, direct redirects, indexing control, and local watchlist targets", () => {
+  it("defaults SITE_INDEXING to 'off' and enables only when explicitly set to 'on'", () => {
+    expect(isSiteIndexingEnabled({})).toBe(false);
+    expect(isSiteIndexingEnabled({ SITE_INDEXING: "off" })).toBe(false);
+    expect(isSiteIndexingEnabled({ SITE_INDEXING: "false" })).toBe(false);
+    expect(isSiteIndexingEnabled({ SITE_INDEXING: "on" })).toBe(true);
+    expect(isSiteIndexingEnabled({ SITE_INDEXING: "true" })).toBe(true);
+  });
   it("defaults ALERTS_MODE to 'local' and only enables 'email' when explicitly set", () => {
     expect(getAlertsMode({})).toBe("local");
     expect(getAlertsMode({ ALERTS_MODE: "local" })).toBe("local");

@@ -2,15 +2,26 @@ name: High-Frequency Sale & Alert Crawl (Opt-In)
 
 on:
   schedule:
-    # Every 4 hours; exits immediately (<2s) when 0 brands are in a sale_events window,
-    # explicitly opted in via brands.high_frequency_mode, or linked to active user alerts.
+    # Every 4 hours; exits immediately (<2s) when 0 brands are opted in.
+    # Always uses normal incremental mode (never --force-refresh).
     - cron: "0 */4 * * *"
   workflow_dispatch:
+    inputs:
+      brand:
+        description: "Optional comma-separated brand slugs (leave blank for opt-in high-frequency brands)"
+        required: false
+        default: ""
+
+# Queue concurrent runs for the same brand instead of overlapping and doubling request rate.
+# Runs for different brands use distinct keys and can proceed independently.
+concurrency:
+  group: crawl-${{ inputs.brand || 'all' }}
+  cancel-in-progress: false
 
 jobs:
   high-freq-crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,10 +46,16 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_ENDPOINT_URL_S3: ${{ secrets.AWS_ENDPOINT_URL_S3 }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
-        run: npx tsx crawler/run.ts --mode=high-frequency
+        run: |
+          BRAND_ARG=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ github.event.inputs.brand }}" ]; then
+            BRAND_ARG="--brand=${{ github.event.inputs.brand }}"
+          fi
+          npx tsx crawler/run.ts $BRAND_ARG --mode=high-frequency
 
-      - name: Evaluate deduplicated price-drop alerts
+      - name: Evaluate price-drop alerts (no-op when ALERTS_MODE=local)
         env:
+          ALERTS_MODE: ${{ vars.ALERTS_MODE || 'local' }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_FROM_EMAIL: ${{ secrets.ALERT_FROM_EMAIL }}

@@ -11,11 +11,11 @@ export async function GET() {
 
   const sealed = await sealRecentCrawlRunsQuery();
   if (!sealed) {
-    return NextResponse.json(
-      { error: "Neon Realtime is not configured on this environment." },
-      { status: 503 }
-    );
+    return NextResponse.json({
+      configured: false,
+      message: "Neon Realtime is not configured (optional).",
+    });
   }
 
-  return NextResponse.json(sealed);
+  return NextResponse.json({ configured: true, ...sealed });
 }

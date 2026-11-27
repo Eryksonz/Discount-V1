@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Newsreader, Plus_Jakarta_Sans } from "next/font/google";
+import { isSiteIndexingEnabled } from "@config/app";
 import "./globals.css";
 
 const serif = Newsreader({
@@ -23,11 +24,17 @@ const mono = JetBrains_Mono({
   weight: ["400", "500", "600", "700"],
 });
 
-export const metadata: Metadata = {
-  title: "Tape & Tailor — Menswear Price Terminal & Verified Deal Feed",
-  description:
-    "Deterministic price tracking across 16 curated menswear brands for finance students and young professionals. Real deals benchmarked against 90-day medians.",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const indexing = isSiteIndexingEnabled();
+  return {
+    title: "Tape & Tailor — Menswear Price Terminal & Verified Deal Feed",
+    description:
+      "Deterministic price tracking across curated menswear brands for students and young professionals. Real deals benchmarked against 90-day medians.",
+    robots: indexing
+      ? { index: true, follow: true }
+      : { index: false, follow: false },
+  };
+}
 
 export default function RootLayout({
   children,
