@@ -16,7 +16,8 @@
     "db:seed": "tsx src/db/seed.ts",
     "probe": "tsx scripts/probe-brand.ts",
     "crawl": "tsx crawler/run.ts",
-    "crawl:dry": "tsx crawler/run.ts --dry-run"
+    "crawl:dry": "tsx crawler/run.ts --dry-run",
+    "hooks:install": "git config core.hooksPath .githooks"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1178.0",

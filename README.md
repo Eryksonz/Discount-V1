@@ -45,6 +45,24 @@ npm install
 npm run dev            # set DATABASE_URL in .env.local, or DEMO_MODE=true for demo preview
 ```
 
+### GitHub Actions Minutes Budget
+GitHub Free provides **2,000 Actions minutes/month** for private repositories (ubuntu-latest 1x multiplier):
+
+| Workflow | Schedule | Typical Runtime / Run | Runs / Month | Est. Monthly Minutes |
+| --- | --- | --- | --- | --- |
+| `crawl-baseline.yml` (full catalog: Faherty ~2.7k + Bonobos ~3.9k SKUs) | Daily (`0 6 * * *`) | ~8–9 min (install + polite 1 req/2s pagination + batched Postgres upsert) | 30 | **240–270 min** |
+| `crawl-high-freq.yml` (opt-in idle: no active sale events / alerts) | Every 4h (`0 */4 * * *`) | ~0.5 min (checkout/npm cache + immediate DB check exit) | ~160 idle runs | **~80 min** |
+| `crawl-high-freq.yml` (opt-in active: e.g. 4 sale-event days/mo) | Every 4h during active windows | ~8.5 min | ~24 active runs | **~204 min** |
+| **Estimated Total (2 full-catalog pilot brands)** | | | | **~320–550 min / mo (~16–28% of Free tier)** |
+
+Scaling to 8–10 non-blocked brands later adds roughly ~1–2 min per daily baseline run (~240–320 min/mo total), staying comfortably within the 2,000 min/month budget because high-frequency mode is strictly opt-in (`brands.high_frequency_mode`, active `sale_events`, or active user `alerts`).
+
+### Git Pre-Commit Guard (`.githooks/pre-commit`)
+Enable the bundled pre-commit hook that blocks staging `.env*` files or secret patterns:
+```bash
+npm run hooks:install
+```
+
 ### Testing, Probing & Crawling
 ```bash
 npm test                                    # Vitest unit + parser regression suite

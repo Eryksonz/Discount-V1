@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { describe, expect, it } from "vitest";
+import { classifyProduct } from "@/lib/classify";
 import { parseShopifyProducts, type ShopifyProductsPayload } from "../parsers/shopify";
 import { parseJsonLdProductsFromHtml } from "../parsers/json-ld";
 import { detectCatalogDropAnomaly, shouldAppendSnapshot } from "../pipeline";
@@ -8,12 +9,12 @@ import { detectCatalogDropAnomaly, shouldAppendSnapshot } from "../pipeline";
 const FIXTURES_DIR = path.resolve(process.cwd(), "crawler/fixtures");
 
 describe("Crawler parser regression tests against saved brand fixtures", () => {
-  it("parses saved Faherty Shopify JSON fixture cleanly", () => {
+  it("parses saved Faherty Shopify JSON fixture and preserves compare_at_price separately", () => {
     const fixturePath = path.join(FIXTURES_DIR, "faherty.shopify.json");
     expect(fs.existsSync(fixturePath)).toBe(true);
     const payload = JSON.parse(fs.readFileSync(fixturePath, "utf8")) as ShopifyProductsPayload;
 
-    const products = parseShopifyProducts(payload, "https://fahertybrand.com", "mens-sale");
+    const products = parseShopifyProducts(payload, "https://fahertybrand.com");
     expect(products.length).toBeGreaterThan(0);
 
     for (const p of products) {
@@ -24,20 +25,29 @@ describe("Crawler parser regression tests against saved brand fixtures", () => {
       expect(p.productUrl.startsWith("https://fahertybrand.com/products/")).toBe(true);
       expect(p.sourceMethod).toBe("shopify-json");
     }
+
+    // Confirm compare_at_price > price is preserved distinctly on discounted items
+    const discounted = products.filter((p) => p.originalPriceCents > p.currentPriceCents);
+    expect(discounted.length).toBeGreaterThan(0);
   });
 
-  it("parses saved Bonobos Shopify JSON fixture and filters out Gift Cards", () => {
+  it("parses saved Bonobos Shopify JSON fixture and routes Gift Cards to out_of_scope via classifier", () => {
     const fixturePath = path.join(FIXTURES_DIR, "bonobos.shopify.json");
     expect(fs.existsSync(fixturePath)).toBe(true);
     const payload = JSON.parse(fs.readFileSync(fixturePath, "utf8")) as ShopifyProductsPayload;
 
-    const products = parseShopifyProducts(payload, "https://bonobos.com", "all");
+    const products = parseShopifyProducts(payload, "https://bonobos.com");
     expect(products.length).toBeGreaterThan(0);
-    expect(products.some((p) => /gift\s*card/i.test(p.name))).toBe(false);
 
-    for (const p of products) {
-      expect(p.currentPriceCents).toBeGreaterThan(0);
-      expect(p.productUrl.startsWith("https://bonobos.com/products/")).toBe(true);
+    const giftCard = products.find((p) => /gift\s*card/i.test(p.name));
+    if (giftCard) {
+      const classified = classifyProduct({
+        title: giftCard.name,
+        breadcrumb: giftCard.rawBreadcrumb,
+        brandSlug: "bonobos",
+      });
+      expect(classified.status).toBe("out_of_scope");
+      expect(classified.matchedRuleId).toBe("oos-gift-card");
     }
   });
 

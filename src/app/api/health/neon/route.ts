@@ -6,6 +6,8 @@ import { isRealtimeConfigured, sealRecentCrawlRunsQuery } from "@/lib/neon/realt
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const isProd = process.env.NODE_ENV === "production";
+
   // 1. Postgres check
   const sql = getSqlClient();
   let postgresStatus: { configured: boolean; ok: boolean; productCount?: number; error?: string } = {
@@ -51,6 +53,22 @@ export async function GET() {
   }
 
   const allOk = postgresStatus.ok && storageStatus.ok && realtimeStatus.ok;
+
+  // In production, never leak internal service URLs, bucket names, row counts, or error details
+  if (isProd) {
+    return NextResponse.json(
+      {
+        ok: allOk,
+        services: {
+          postgres: { ok: postgresStatus.ok },
+          objectStorage: { ok: storageStatus.ok },
+          realtime: { ok: realtimeStatus.ok },
+        },
+      },
+      { status: allOk ? 200 : 503 }
+    );
+  }
+
   return NextResponse.json(
     {
       ok: allOk,

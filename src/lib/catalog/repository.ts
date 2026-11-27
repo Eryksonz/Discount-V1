@@ -398,7 +398,7 @@ export async function queryCatalogFeed(
                 similarity(p.name, ${q})
               ) AS search_rank
             FROM products p
-            WHERE p.classification_status != 'unclassified'
+            WHERE p.classification_status IN ('classified', 'manual')
               AND (
                 p.search_vector @@ websearch_to_tsquery('english', ${q})
                 OR similarity(p.name, ${q}) > 0.2
@@ -408,7 +408,7 @@ export async function queryCatalogFeed(
           `
         : await sql`
             SELECT p.* FROM products p
-            WHERE p.classification_status != 'unclassified'
+            WHERE p.classification_status IN ('classified', 'manual')
             ORDER BY p.deal_score DESC
           `;
 
@@ -506,8 +506,12 @@ export async function queryCatalogFeed(
 
   assertDemoFallbackAllowed("PostgreSQL unavailable");
   const allRaw = getFallbackCatalog();
-  const classified = allRaw.filter((i) => i.classificationStatus !== "unclassified").map(toFeedItem);
-  const unclassifiedCount = allRaw.length - classified.length;
+  const classified = allRaw
+    .filter((i) => i.classificationStatus === "classified")
+    .map(toFeedItem);
+  const unclassifiedCount = allRaw.filter(
+    (i) => i.classificationStatus === "unclassified"
+  ).length;
   const statsBundle = buildStripAndStats(classified);
   const filtered = filterAndSortItems(classified, params, false);
   const start = (page - 1) * pageSize;

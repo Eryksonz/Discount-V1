@@ -15,7 +15,13 @@ export const PRODUCT_CATEGORIES = [
     slug: "dress-shirts-ocbds",
     label: "OCBDs & Dress Shirts",
     shortLabel: "Dress Shirts",
-    subcategories: ["Non-Iron Dress Shirt", "OCBD", "Performance Dress Shirt", "Twill Shirt"],
+    subcategories: [
+      "Non-Iron Dress Shirt",
+      "OCBD",
+      "Performance Dress Shirt",
+      "Twill Shirt",
+      "Casual Button-Down",
+    ],
   },
   {
     slug: "chinos-dress-pants",
@@ -51,17 +57,32 @@ export const PRODUCT_CATEGORIES = [
     slug: "shoes-belts",
     label: "Loafers, Dress Shoes & Belts",
     shortLabel: "Shoes & Belts",
-    subcategories: ["Penny Loafer", "Oxford Dress Shoe", "Derby / Monk Strap", "Dress Belt"],
+    subcategories: [
+      "Penny Loafer",
+      "Oxford Dress Shoe",
+      "Derby / Monk Strap",
+      "Dress Belt",
+      "Dress Socks",
+    ],
   },
   {
     slug: "outerwear",
     label: "Outerwear",
     shortLabel: "Outerwear",
-    subcategories: ["Quilted Vest", "Fleece Vest", "Wool Overcoat", "Trench / Mac Coat"],
+    subcategories: [
+      "Quilted Vest",
+      "Fleece Vest",
+      "Wool Overcoat",
+      "Trench / Mac Coat",
+      "Tailored Jacket",
+    ],
   },
 ] as const;
 
+export const OUT_OF_SCOPE_CATEGORY = "out_of_scope" as const;
+
 export type CategorySlug = (typeof PRODUCT_CATEGORIES)[number]["slug"];
+export type AllCategorySlug = CategorySlug | typeof OUT_OF_SCOPE_CATEGORY;
 
 export const CATEGORY_BY_SLUG: Record<string, (typeof PRODUCT_CATEGORIES)[number]> =
   Object.fromEntries(PRODUCT_CATEGORIES.map((c) => [c.slug, c]));

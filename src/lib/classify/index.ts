@@ -1,8 +1,14 @@
-import type { CategorySlug, OccasionTag } from "@config/categories";
+import {
+  OUT_OF_SCOPE_CATEGORY,
+  type AllCategorySlug,
+  type CategorySlug,
+  type OccasionTag,
+} from "@config/categories";
 import {
   CATEGORY_RULES,
   COLOR_NORMALIZATION_MAP,
   OCCASION_BY_CATEGORY,
+  OUT_OF_SCOPE_RULES,
   type CategoryRule,
 } from "./rules";
 
@@ -15,18 +21,18 @@ export interface ClassificationInput {
 }
 
 export interface ClassificationResult {
-  category: CategorySlug | null;
+  category: AllCategorySlug | null;
   subcategory: string | null;
   occasions: OccasionTag[];
   normalizedColors: string[];
   normalizedSizes: string[];
   matchedRuleId: string | null;
-  status: "classified" | "unclassified";
+  status: "classified" | "out_of_scope" | "unclassified";
 }
 
 export interface CustomRuleDefinition {
   ruleId: string;
-  category: CategorySlug;
+  category: AllCategorySlug;
   subcategory: string;
   keywords: string[];
   regexPattern?: string | null;
@@ -55,7 +61,7 @@ const ALPHA_SIZE_MAP: Record<string, string> = {
   "3xl": "XXXL",
   "one size": "OS",
   os: "OS",
-  "osfa": "OS",
+  osfa: "OS",
 };
 
 export function normalizeColor(raw: string): string {
@@ -68,13 +74,11 @@ export function normalizeColor(raw: string): string {
   if (COLOR_NORMALIZATION_MAP[cleaned]) {
     return COLOR_NORMALIZATION_MAP[cleaned];
   }
-  // Check if any canonical phrase is contained in a multi-word retailer color name (e.g. "Gale Navy Heather")
   for (const [key, canonical] of Object.entries(COLOR_NORMALIZATION_MAP)) {
     if (cleaned.includes(key)) {
       return canonical;
     }
   }
-  // Title-case fallback for unusual but valid colors
   return cleaned.replace(/\b\w/g, (ch) => ch.toUpperCase());
 }
 
@@ -87,25 +91,21 @@ export function normalizeSize(raw: string): string {
     return ALPHA_SIZE_MAP[lower];
   }
 
-  // Waist x Inseam (e.g. "32 / 30", "32W x 30L", "32x30")
   const waistInseam = lower.match(/^(\d{2})\s*w?\s*[x/]\s*(\d{2})\s*l?$/);
   if (waistInseam) {
     return `${waistInseam[1]}x${waistInseam[2]}`;
   }
 
-  // Dress shirt Neck / Sleeve (e.g. "15.5 / 33", "15.5-33", "16 34/35")
   const neckSleeve = lower.match(/^(\d{2}(?:\.5)?)\s*[-/ ]\s*(\d{2}(?:\/\d{2})?)$/);
   if (neckSleeve) {
     return `${neckSleeve[1]}/${neckSleeve[2]}`;
   }
 
-  // Suit / Blazer chest + length (e.g. "40 R", "40r", "38S", "42L")
   const suitSize = lower.match(/^(\d{2})\s*([srl])$/);
   if (suitSize) {
     return `${suitSize[1]}${suitSize[2].toUpperCase()}`;
   }
 
-  // Shoe size (e.g. "10.5 D", "10D", "9.5")
   const shoeSize = lower.match(/^(\d{1,2}(?:\.5)?)\s*([de]{1,2})?$/);
   if (shoeSize) {
     return shoeSize[2] ? `${shoeSize[1]}${shoeSize[2].toUpperCase()}` : shoeSize[1];
@@ -121,7 +121,6 @@ function deriveOccasions(
 ): OccasionTag[] {
   const tags = new Set<OccasionTag>(OCCASION_BY_CATEGORY[category] ?? []);
 
-  // Refine based on subcategory / formality cues
   if (subcategory === "Wool Dress Pant" || subcategory === "Flannel Trouser") {
     tags.add("Interview");
     tags.add("Superday");
@@ -130,8 +129,15 @@ function deriveOccasions(
     tags.delete("Superday");
     tags.add("Summer internship");
   }
-  if (subcategory === "OCBD" || subcategory === "Twill Shirt") {
+  if (
+    subcategory === "OCBD" ||
+    subcategory === "Twill Shirt" ||
+    subcategory === "Casual Button-Down"
+  ) {
     tags.delete("Superday");
+    if (subcategory === "Casual Button-Down") {
+      tags.delete("Interview");
+    }
   }
   if (subcategory === "Penny Loafer" && /\b(suede|driving)\b/i.test(haystack)) {
     tags.delete("Interview");
@@ -162,7 +168,7 @@ function compileCustomRules(customRules: CustomRuleDefinition[] = []): CategoryR
       subcategory: rule.subcategory,
       pattern,
       brandSlugs: rule.brandSlug ? [rule.brandSlug] : undefined,
-      priority: rule.priority ?? 5, // Custom admin rules take precedence by default
+      priority: rule.priority ?? 0, // Admin custom rules take top priority
     };
   });
 }
@@ -180,9 +186,12 @@ export function classifyProduct(
     new Set((input.sizes ?? []).map(normalizeSize).filter(Boolean))
   );
 
-  const allRules = [...compileCustomRules(customRules), ...CATEGORY_RULES].sort(
-    (a, b) => a.priority - b.priority
-  );
+  // Order: custom admin rules -> out_of_scope rules -> in-scope category rules
+  const allRules = [
+    ...compileCustomRules(customRules),
+    ...OUT_OF_SCOPE_RULES,
+    ...CATEGORY_RULES,
+  ].sort((a, b) => a.priority - b.priority);
 
   for (const rule of allRules) {
     if (rule.brandSlugs && input.brandSlug && !rule.brandSlugs.includes(input.brandSlug)) {
@@ -192,6 +201,17 @@ export function classifyProduct(
       continue;
     }
     if (rule.pattern.test(haystack)) {
+      if (rule.category === OUT_OF_SCOPE_CATEGORY) {
+        return {
+          category: OUT_OF_SCOPE_CATEGORY,
+          subcategory: rule.subcategory,
+          occasions: [],
+          normalizedColors,
+          normalizedSizes,
+          matchedRuleId: rule.id,
+          status: "out_of_scope",
+        };
+      }
       return {
         category: rule.category,
         subcategory: rule.subcategory,

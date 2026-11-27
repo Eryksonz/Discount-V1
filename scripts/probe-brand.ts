@@ -367,7 +367,18 @@ export async function probeBrandTarget(target: {
 
 async function main() {
   const args = process.argv.slice(2);
-  const runAll = args.includes("--all") || args.length === 0;
+  const excludeArg = args.find((a) => a.startsWith("--exclude="));
+  const excluded = new Set(
+    excludeArg
+      ? excludeArg
+          .slice("--exclude=".length)
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : []
+  );
+  const positional = args.filter((a) => !a.startsWith("--"));
+  const runAll = args.includes("--all") || positional.length === 0;
   const targets: Array<{
     brandName: string;
     brandSlug: string;
@@ -378,6 +389,7 @@ async function main() {
 
   if (runAll) {
     for (const b of BRANDS as readonly BrandConfig[]) {
+      if (excluded.has(b.slug)) continue;
       targets.push({
         brandName: b.name,
         brandSlug: b.slug,
@@ -387,7 +399,7 @@ async function main() {
       });
     }
   } else {
-    const arg = args[0];
+    const arg = positional[0];
     const bySlug = BRANDS.find((b) => b.slug === arg);
     if (bySlug) {
       targets.push({

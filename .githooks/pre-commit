@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+# Pre-commit guard: block committing .env files or obvious credential leaks
+
+staged_files=$(git diff --cached --name-only --diff-filter=ACM)
+
+for file in $staged_files; do
+  case "$file" in
+    .env|.env.local|.env.*.local|.env.production|.env.development)
+      echo "ERROR: Refusing to commit environment file '$file'."
+      echo "Keep secrets in .env.local (gitignored) and commit only .env.example."
+      exit 1
+      ;;
+  esac
+done
+
+# Scan staged additions for common credential prefixes
+if git diff --cached -U0 | grep -E '^\+.*(npg_[A-Za-z0-9]{8,}|AWS_SECRET_ACCESS_KEY=[A-Za-z0-9/+=]{16,}|NEON_REALTIME_SECRET=[A-Za-z0-9._-]{16,}|RESEND_API_KEY=re_[A-Za-z0-9_]{8,})' >/dev/null 2>&1; then
+  echo "ERROR: Potential secret detected in staged changes. Remove credentials before committing."
+  exit 1
+fi
+
+exit 0

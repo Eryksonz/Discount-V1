@@ -47,7 +47,6 @@ function extractColorAndSize(
     (n) => n.includes("size") || n.includes("waist") || n.includes("neck") || n.includes("fit")
   );
 
-  // Also infer color from title pattern "Product Name - Navy"
   if (product.title && product.title.includes(" - ")) {
     const suffix = product.title.split(" - ").slice(1).join(" - ").trim();
     if (suffix && suffix.length <= 40) {
@@ -63,7 +62,6 @@ function extractColorAndSize(
     if (sizeIdx >= 0 && opts[sizeIdx]) {
       sizes.add(String(opts[sizeIdx]).trim());
     } else if (sizeIdx === -1 && variant.title && variant.title !== "Default Title") {
-      // Single-option Shopify products commonly put size directly in variant.title
       sizes.add(variant.title.trim());
     }
   }
@@ -75,8 +73,10 @@ function extractColorAndSize(
 }
 
 /**
- * Pure parser for Shopify `/products.json` and `/collections/<handle>/products.json` payloads.
- * Skips gift cards and women's/kids'-only items when clearly tagged so the menswear catalog stays focused.
+ * Pure parser for Shopify `/products.json?limit=250&page=N` full-catalog payloads.
+ * Preserves `compare_at_price` as `originalPriceCents` separately from `price` (`currentPriceCents`),
+ * and forwards gender/department hints from `product_type` + `tags` into `rawBreadcrumb` so
+ * `/lib/classify` deterministically routes non-finance items to `out_of_scope` (visible in `/admin`).
  */
 export function parseShopifyProducts(
   payload: ShopifyProductsPayload,
@@ -91,29 +91,6 @@ export function parseShopifyProducts(
     const handle = (p.handle ?? "").trim();
     if (!title || !handle) continue;
 
-    // Exclude non-garment gift cards
-    if (/\bgift\s*card\b/i.test(title) || /\bgift\s*card\b/i.test(p.product_type ?? "")) {
-      continue;
-    }
-
-    const tagsArray = Array.isArray(p.tags)
-      ? p.tags
-      : typeof p.tags === "string"
-        ? p.tags.split(",").map((t) => t.trim())
-        : [];
-    const tagsLower = tagsArray.map((t) => t.toLowerCase());
-    const typeLower = (p.product_type ?? "").toLowerCase();
-
-    // Skip explicitly women's-only or kids' items if pulling from global /products.json
-    if (
-      /\b(women|women's|womens|dress|skirt|bra|bikini|legging|maternity|kids|youth|toddler|baby)\b/i.test(
-        `${title} ${typeLower} ${tagsLower.join(" ")}`
-      ) &&
-      !/\b(dress\s+shirt|dress\s+pant|dress\s+trouser|dress\s+shoe|dress\s+belt)\b/i.test(title)
-    ) {
-      continue;
-    }
-
     const variants = p.variants ?? [];
     if (variants.length === 0) continue;
 
@@ -126,6 +103,7 @@ export function parseShopifyProducts(
 
     const currentPriceCents = Math.min(...validPrices);
 
+    // Store brand-listed `compare_at_price` separately as `originalPriceCents`
     const comparePrices = pricingPool
       .map((v) => toCents(v.compare_at_price))
       .filter((c) => c >= currentPriceCents);
@@ -134,11 +112,24 @@ export function parseShopifyProducts(
 
     const { colors, sizes } = extractColorAndSize(p, availableVariants);
 
-    const breadcrumbParts = [
-      "Men",
-      collectionHint ? collectionHint.replace(/-/g, " ") : "",
-      p.product_type ?? "",
-    ].filter(Boolean);
+    const tagsArray = Array.isArray(p.tags)
+      ? p.tags
+      : typeof p.tags === "string"
+        ? p.tags.split(",").map((t) => t.trim())
+        : [];
+    const genderHints = tagsArray.filter((t) =>
+      /\b(women|womens|women's|kids|youth|baby|boys|girls|swim|home|gift|men|mens|men's)\b/i.test(t)
+    );
+
+    const breadcrumbParts = Array.from(
+      new Set(
+        [
+          collectionHint ? collectionHint.replace(/-/g, " ") : "",
+          p.product_type?.trim() ?? "",
+          ...genderHints.slice(0, 3),
+        ].filter(Boolean)
+      )
+    );
 
     results.push({
       externalId: String(p.id),

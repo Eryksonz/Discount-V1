@@ -1,8 +1,9 @@
-name: High-Frequency Sale & Alert Crawl
+name: High-Frequency Sale & Alert Crawl (Opt-In)
 
 on:
   schedule:
-    # Every 4 hours for active sale events and products with active user alerts
+    # Every 4 hours; exits immediately (<2s) when 0 brands are in a sale_events window,
+    # explicitly opted in via brands.high_frequency_mode, or linked to active user alerts.
     - cron: "0 */4 * * *"
   workflow_dispatch:
 
@@ -23,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run high-frequency crawl
+      - name: Run opt-in high-frequency crawl
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           CRAWLER_CONTACT_EMAIL: ${{ secrets.CRAWLER_CONTACT_EMAIL }}
@@ -34,4 +35,4 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_ENDPOINT_URL_S3: ${{ secrets.AWS_ENDPOINT_URL_S3 }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
-        run: npx tsx crawler/run.ts --mode=high-frequency --max=60
+        run: npx tsx crawler/run.ts --mode=high-frequency

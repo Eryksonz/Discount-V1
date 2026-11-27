@@ -36,6 +36,10 @@ export interface BrandConfig {
     sitemapUrls: string[];
     salePaths: string[];
     shopifyCollections?: string[];
+    /** Expected minimum active catalog size used to log coverage vs. expected */
+    expectedMinProducts?: number;
+    /** High configurable safety cap preventing runaway pagination (default 5000) */
+    maxProductsSafetyCap?: number;
   };
 }
 
@@ -155,6 +159,8 @@ export const BRANDS: readonly BrandConfig[] = [
       sitemapUrls: ["https://fahertybrand.com/sitemap.xml"],
       salePaths: ["/collections/mens-sale"],
       shopifyCollections: ["mens-sale", "mens-shirts", "mens-sweaters"],
+      expectedMinProducts: 2000,
+      maxProductsSafetyCap: 5000,
     },
   },
   {
@@ -213,6 +219,8 @@ export const BRANDS: readonly BrandConfig[] = [
       sitemapUrls: ["https://bonobos.com/sitemap.xml"],
       salePaths: ["/shop/final-sale"],
       shopifyCollections: [],
+      expectedMinProducts: 2500,
+      maxProductsSafetyCap: 5000,
     },
   },
   {

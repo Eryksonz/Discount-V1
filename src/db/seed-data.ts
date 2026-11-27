@@ -19,7 +19,7 @@ export interface SeededProductRecord {
   colors: string[];
   sizes: string[];
   matchedRuleId: string | null;
-  classificationStatus: "classified" | "unclassified";
+  classificationStatus: "classified" | "out_of_scope" | "unclassified";
   currentPriceCents: number;
   originalPriceCents: number;
   currency: string;

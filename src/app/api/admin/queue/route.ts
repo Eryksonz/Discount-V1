@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { desc, eq } from "drizzle-orm";
-import { CATEGORY_BY_SLUG, type CategorySlug } from "@config/categories";
+import { CATEGORY_BY_SLUG, OUT_OF_SCOPE_CATEGORY, type AllCategorySlug } from "@config/categories";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 import { isAdminAuthenticated } from "@/lib/admin/auth";
@@ -21,49 +21,57 @@ export async function GET() {
     );
   }
 
-  const [unclassified, flagged, runs, brandRows, customRules, clickCountRows] = await Promise.all([
-    db
-      .select()
-      .from(schema.products)
-      .where(eq(schema.products.classificationStatus, "unclassified"))
-      .orderBy(desc(schema.products.lastCheckedAt))
-      .limit(100),
-    db
-      .select()
-      .from(schema.flaggedUpdates)
-      .where(eq(schema.flaggedUpdates.status, "pending"))
-      .orderBy(desc(schema.flaggedUpdates.createdAt))
-      .limit(100),
-    db
-      .select({
-        id: schema.crawlRuns.id,
-        brandId: schema.crawlRuns.brandId,
-        mode: schema.crawlRuns.mode,
-        status: schema.crawlRuns.status,
-        startedAt: schema.crawlRuns.startedAt,
-        durationMs: schema.crawlRuns.durationMs,
-        productsSeen: schema.crawlRuns.productsSeen,
-        priceChanges: schema.crawlRuns.priceChanges,
-        newProducts: schema.crawlRuns.newProducts,
-        quarantinedCount: schema.crawlRuns.quarantinedCount,
-        errorsCount: schema.crawlRuns.errorsCount,
-        errorSummary: schema.crawlRuns.errorSummary,
-      })
-      .from(schema.crawlRuns)
-      .orderBy(desc(schema.crawlRuns.startedAt))
-      .limit(30),
-    db.select().from(schema.brands).orderBy(schema.brands.name),
-    db
-      .select()
-      .from(schema.customClassificationRules)
-      .orderBy(desc(schema.customClassificationRules.createdAt)),
-    db.select({ id: schema.outboundClicks.id }).from(schema.outboundClicks).limit(1000),
-  ]);
+  const [unclassified, outOfScope, flagged, runs, brandRows, customRules, clickCountRows] =
+    await Promise.all([
+      db
+        .select()
+        .from(schema.products)
+        .where(eq(schema.products.classificationStatus, "unclassified"))
+        .orderBy(desc(schema.products.lastCheckedAt))
+        .limit(100),
+      db
+        .select()
+        .from(schema.products)
+        .where(eq(schema.products.classificationStatus, "out_of_scope"))
+        .orderBy(desc(schema.products.lastCheckedAt))
+        .limit(100),
+      db
+        .select()
+        .from(schema.flaggedUpdates)
+        .where(eq(schema.flaggedUpdates.status, "pending"))
+        .orderBy(desc(schema.flaggedUpdates.createdAt))
+        .limit(100),
+      db
+        .select({
+          id: schema.crawlRuns.id,
+          brandId: schema.crawlRuns.brandId,
+          mode: schema.crawlRuns.mode,
+          status: schema.crawlRuns.status,
+          startedAt: schema.crawlRuns.startedAt,
+          durationMs: schema.crawlRuns.durationMs,
+          productsSeen: schema.crawlRuns.productsSeen,
+          priceChanges: schema.crawlRuns.priceChanges,
+          newProducts: schema.crawlRuns.newProducts,
+          quarantinedCount: schema.crawlRuns.quarantinedCount,
+          errorsCount: schema.crawlRuns.errorsCount,
+          errorSummary: schema.crawlRuns.errorSummary,
+        })
+        .from(schema.crawlRuns)
+        .orderBy(desc(schema.crawlRuns.startedAt))
+        .limit(30),
+      db.select().from(schema.brands).orderBy(schema.brands.name),
+      db
+        .select()
+        .from(schema.customClassificationRules)
+        .orderBy(desc(schema.customClassificationRules.createdAt)),
+      db.select({ id: schema.outboundClicks.id }).from(schema.outboundClicks).limit(1000),
+    ]);
 
   const brandNameById = Object.fromEntries(brandRows.map((b) => [b.id, b.name]));
 
   return NextResponse.json({
     unclassified,
+    outOfScope,
     flagged,
     crawlRuns: runs.map((r) => ({ ...r, brandName: brandNameById[r.brandId] ?? `#${r.brandId}` })),
     brands: brandRows,
@@ -87,12 +95,13 @@ export async function POST(request: NextRequest) {
 
   if (action === "classify") {
     const productId = String(body.productId ?? "");
-    const category = String(body.category ?? "") as CategorySlug;
+    const category = String(body.category ?? "") as AllCategorySlug;
     const subcategory = String(body.subcategory ?? "").trim();
     const createRule = Boolean(body.createRule);
     const ruleKeywordsRaw = String(body.ruleKeywords ?? "");
 
-    if (!productId || !CATEGORY_BY_SLUG[category] || !subcategory) {
+    const isValidCat = category === OUT_OF_SCOPE_CATEGORY || Boolean(CATEGORY_BY_SLUG[category]);
+    if (!productId || !isValidCat || !subcategory) {
       return NextResponse.json(
         { error: "Valid productId, category, and subcategory are required." },
         { status: 400 }
@@ -112,29 +121,28 @@ export async function POST(request: NextRequest) {
           category,
           subcategory,
           keywords,
-          priority: 5,
+          priority: 0,
         });
       }
     }
 
-    // Update target product
+    const nextStatus = category === OUT_OF_SCOPE_CATEGORY ? "out_of_scope" : "manual";
     await db
       .update(schema.products)
       .set({
         category,
         subcategory,
-        classificationStatus: "manual",
+        classificationStatus: nextStatus,
         matchedRuleId: createdRuleId ?? "manual-admin",
       })
       .where(eq(schema.products.id, productId));
 
-    // If a new rule was created, immediately re-run classifier on remaining unclassified items
     let reclassifiedCount = 0;
     if (createdRuleId) {
       const allCustom = await db.select().from(schema.customClassificationRules);
       const customDefs: CustomRuleDefinition[] = allCustom.map((r) => ({
         ruleId: r.ruleId,
-        category: r.category as CategorySlug,
+        category: r.category as AllCategorySlug,
         subcategory: r.subcategory,
         keywords: r.keywords ?? [],
         regexPattern: r.regexPattern,
@@ -156,7 +164,7 @@ export async function POST(request: NextRequest) {
           },
           customDefs
         );
-        if (res.status === "classified") {
+        if (res.status !== "unclassified") {
           reclassifiedCount += 1;
           await db
             .update(schema.products)
@@ -165,7 +173,7 @@ export async function POST(request: NextRequest) {
               subcategory: res.subcategory,
               occasions: res.occasions,
               matchedRuleId: res.matchedRuleId,
-              classificationStatus: "classified",
+              classificationStatus: res.status,
             })
             .where(eq(schema.products.id, item.id));
         }
@@ -196,6 +204,19 @@ export async function POST(request: NextRequest) {
     await db
       .update(schema.brands)
       .set({ circuitState: "active", consecutiveErrors: 0 })
+      .where(eq(schema.brands.id, brandId));
+    return NextResponse.json({ ok: true });
+  }
+
+  if (action === "toggle_high_freq") {
+    const brandId = Number(body.brandId);
+    const enabled = Boolean(body.enabled);
+    if (!Number.isFinite(brandId)) {
+      return NextResponse.json({ error: "Valid brandId required." }, { status: 400 });
+    }
+    await db
+      .update(schema.brands)
+      .set({ highFrequencyMode: enabled })
       .where(eq(schema.brands.id, brandId));
     return NextResponse.json({ ok: true });
   }

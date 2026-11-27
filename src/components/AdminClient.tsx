@@ -40,6 +40,11 @@ interface CrawlRunRow {
   errorSummary: string | null;
 }
 
+interface OutOfScopeProduct extends UnclassifiedProduct {
+  subcategory: string | null;
+  matchedRuleId: string | null;
+}
+
 interface BrandHealthRow {
   id: number;
   name: string;
@@ -47,11 +52,13 @@ interface BrandHealthRow {
   slug: string;
   circuitState: string;
   consecutiveErrors: number;
+  highFrequencyMode: boolean;
   lastCrawledAt: string | null;
 }
 
 interface AdminData {
   unclassified: UnclassifiedProduct[];
+  outOfScope: OutOfScopeProduct[];
   flagged: FlaggedUpdate[];
   crawlRuns: CrawlRunRow[];
   brands: BrandHealthRow[];
@@ -72,7 +79,9 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
   const [data, setData] = useState<AdminData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [tab, setTab] = useState<"unclassified" | "flagged" | "runs">("unclassified");
+  const [tab, setTab] = useState<"unclassified" | "out_of_scope" | "flagged" | "runs">(
+    "unclassified"
+  );
 
   // Per-item classification draft state
   const [drafts, setDrafts] = useState<
@@ -190,6 +199,20 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
     }
   }
 
+  async function handleToggleHighFreq(brandId: number, enabled: boolean) {
+    setBusyId(`hf-${brandId}`);
+    try {
+      await fetch("/api/admin/queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_high_freq", brandId, enabled }),
+      });
+      await loadData();
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (!authenticated) {
     return (
       <main className="min-h-screen bg-[#FAF8F3] flex items-center justify-center p-4">
@@ -299,6 +322,17 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
             }`}
           >
             Unclassified Queue ({data?.unclassified.length ?? 0})
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("out_of_scope")}
+            className={`rounded-md px-3.5 py-1.5 font-mono text-xs font-semibold border ${
+              tab === "out_of_scope"
+                ? "bg-[#0F1D32] text-white border-[#0F1D32]"
+                : "bg-white text-[#3E4C5E] border-[#D8D0C0]"
+            }`}
+          >
+            Out of Scope ({data?.outOfScope.length ?? 0})
           </button>
           <button
             type="button"
@@ -457,6 +491,37 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
           </div>
         )}
 
+        {/* Out of Scope Audit View */}
+        {tab === "out_of_scope" && data && (
+          <div className="rounded-lg border border-[#E2DCD0] bg-white overflow-x-auto">
+            <div className="px-4 py-3 border-b border-[#E6E0D4] font-mono text-xs text-[#5C6776]">
+              Excluded from public Deal Desk (showing latest 100). Audit matched rules below.
+            </div>
+            <table className="w-full text-left font-mono text-xs">
+              <thead className="bg-[#FAF8F3] text-[#5C6776] border-b border-[#E6E0D4]">
+                <tr>
+                  <th className="p-2.5">Brand</th>
+                  <th className="p-2.5">Product</th>
+                  <th className="p-2.5">Reason / Subcategory</th>
+                  <th className="p-2.5">Matched Rule</th>
+                  <th className="p-2.5">Price</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#EFEAE0]">
+                {data.outOfScope.map((item) => (
+                  <tr key={item.id}>
+                    <td className="p-2.5">{item.brandSlug}</td>
+                    <td className="p-2.5 font-sans font-medium text-[#0F1D32]">{item.name}</td>
+                    <td className="p-2.5 text-[#5C6776]">{item.subcategory ?? "Out of scope"}</td>
+                    <td className="p-2.5 text-[#1B365D]">{item.matchedRuleId ?? "—"}</td>
+                    <td className="p-2.5 tabular-nums">{formatCurrency(item.currentPriceCents)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {/* Flagged Updates Quarantine */}
         {tab === "flagged" && data && (
           <div className="space-y-3">
@@ -575,16 +640,31 @@ export function AdminClient({ initialAuthenticated }: { initialAuthenticated: bo
                         state: {b.circuitState} · errs: {b.consecutiveErrors}
                       </div>
                     </div>
-                    {b.circuitState !== "active" && (
+                    <div className="flex items-center gap-1.5">
                       <button
                         type="button"
-                        disabled={busyId === `brand-${b.id}`}
-                        onClick={() => void handleResetCircuit(b.id)}
-                        className="rounded bg-[#0F1D32] px-2 py-1 font-mono text-[10px] text-white"
+                        disabled={busyId === `hf-${b.id}`}
+                        onClick={() => void handleToggleHighFreq(b.id, !b.highFrequencyMode)}
+                        className={`rounded px-2 py-1 font-mono text-[10px] border ${
+                          b.highFrequencyMode
+                            ? "bg-[#14532D] text-white border-[#14532D]"
+                            : "bg-white text-[#5C6776] border-[#D8D0C0]"
+                        }`}
+                        title="Opt this brand in/out of 4-hour high-frequency crawling"
                       >
-                        Reset
+                        {b.highFrequencyMode ? "HF: ON" : "HF: OFF"}
                       </button>
-                    )}
+                      {b.circuitState !== "active" && (
+                        <button
+                          type="button"
+                          disabled={busyId === `brand-${b.id}`}
+                          onClick={() => void handleResetCircuit(b.id)}
+                          className="rounded bg-[#0F1D32] px-2 py-1 font-mono text-[10px] text-white"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
