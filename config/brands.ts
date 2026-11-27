@@ -212,7 +212,7 @@ export const BRANDS: readonly BrandConfig[] = [
       rateLimitMs: 2000,
       sitemapUrls: ["https://bonobos.com/sitemap.xml"],
       salePaths: ["/shop/final-sale"],
-      shopifyCollections: ["final-sale", "chinos", "dress-shirts", "sweaters"],
+      shopifyCollections: [],
     },
   },
   {
