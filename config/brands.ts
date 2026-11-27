@@ -1,4 +1,11 @@
-export type CrawlMethod = "json-ld" | "shopify-json" | "internal-api" | "playwright";
+export type CrawlMethod =
+  | "json-ld"
+  | "shopify-json"
+  | "rakuten-feed"
+  | "internal-api"
+  | "playwright";
+
+export type BrandIngestionStatus = "active" | "feed_pending" | "blocked" | "planned";
 
 export type AffiliateNetwork =
   | "rakuten"
@@ -20,6 +27,10 @@ export interface BrandConfig {
   priceTier: "accessible" | "mid-premium" | "luxury-tailored";
   /** Hex accent used only for editorial swatches / charts */
   swatchHex: string;
+  /** Operational ingestion state used by crawler & UI */
+  ingestionStatus: BrandIngestionStatus;
+  /** Human-readable operational explanation shown in UI / admin when non-active */
+  statusNote?: string;
   studentDiscount?: {
     provider: "UNiDAYS" | "Student Beans" | "SheerID" | "Direct .edu";
     offer: string;
@@ -71,11 +82,14 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.petermillar.com",
     priceTier: "mid-premium",
     swatchHex: "#1B365D",
+    ingestionStatus: "feed_pending",
+    statusNote:
+      "Feed pending: awaiting Rakuten Advertising product catalog feed access. Direct crawling is disabled.",
     affiliate: { network: "rakuten", active: false },
     crawler: {
-      preferredMethods: ["json-ld", "internal-api", "playwright"],
+      preferredMethods: ["rakuten-feed"],
       rateLimitMs: 2000,
-      sitemapUrls: ["https://www.petermillar.com/sitemap_index.xml"],
+      sitemapUrls: [],
       salePaths: ["/c/men/sale"],
     },
   },
@@ -88,16 +102,19 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.vineyardvines.com",
     priceTier: "mid-premium",
     swatchHex: "#204068",
+    ingestionStatus: "active",
     studentDiscount: {
       provider: "SheerID",
       offer: "15% student discount program",
     },
     affiliate: { network: "cj", active: false },
     crawler: {
-      preferredMethods: ["json-ld", "internal-api", "playwright"],
+      preferredMethods: ["json-ld"],
       rateLimitMs: 2000,
-      sitemapUrls: ["https://www.vineyardvines.com/sitemap_index.xml"],
+      sitemapUrls: ["https://www.vineyardvines.com/sitemap_0.xml"],
       salePaths: ["/category/sale/mens"],
+      expectedMinProducts: 1000,
+      maxProductsSafetyCap: 2500,
     },
   },
   {
@@ -109,16 +126,19 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.brooksbrothers.com",
     priceTier: "mid-premium",
     swatchHex: "#14263D",
+    ingestionStatus: "active",
     studentDiscount: {
       provider: "Student Beans",
       offer: "15% student discount program",
     },
     affiliate: { network: "rakuten", active: false },
     crawler: {
-      preferredMethods: ["json-ld", "internal-api", "playwright"],
+      preferredMethods: ["json-ld"],
       rateLimitMs: 2500,
       sitemapUrls: ["https://www.brooksbrothers.com/sitemap_index.xml"],
       salePaths: ["/mens/sale"],
+      expectedMinProducts: 1500,
+      maxProductsSafetyCap: 3000,
     },
   },
   {
@@ -130,9 +150,11 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.johnnie-o.com",
     priceTier: "mid-premium",
     swatchHex: "#284B63",
+    ingestionStatus: "planned",
+    statusNote: "Catalog adapter planned.",
     affiliate: { network: "impact", active: false },
     crawler: {
-      preferredMethods: ["shopify-json", "json-ld", "playwright"],
+      preferredMethods: ["shopify-json", "json-ld"],
       rateLimitMs: 2000,
       sitemapUrls: ["https://www.johnnie-o.com/sitemap.xml"],
       salePaths: ["/collections/mens-sale"],
@@ -148,13 +170,14 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://fahertybrand.com",
     priceTier: "mid-premium",
     swatchHex: "#3C5248",
+    ingestionStatus: "active",
     studentDiscount: {
       provider: "SheerID",
       offer: "20% student discount program",
     },
     affiliate: { network: "impact", active: false },
     crawler: {
-      preferredMethods: ["shopify-json", "json-ld", "playwright"],
+      preferredMethods: ["shopify-json", "json-ld"],
       rateLimitMs: 2000,
       sitemapUrls: ["https://fahertybrand.com/sitemap.xml"],
       salePaths: ["/collections/mens-sale"],
@@ -172,9 +195,11 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.mizzenandmain.com",
     priceTier: "mid-premium",
     swatchHex: "#1E3A5F",
+    ingestionStatus: "blocked",
+    statusNote: "Direct requests rate-limited (HTTP 429); awaiting Impact affiliate feed.",
     affiliate: { network: "impact", active: false },
     crawler: {
-      preferredMethods: ["shopify-json", "json-ld", "playwright"],
+      preferredMethods: ["shopify-json", "json-ld"],
       rateLimitMs: 2000,
       sitemapUrls: ["https://www.mizzenandmain.com/sitemap.xml"],
       salePaths: ["/collections/sale"],
@@ -190,9 +215,11 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.rhone.com",
     priceTier: "mid-premium",
     swatchHex: "#2F3E46",
+    ingestionStatus: "blocked",
+    statusNote: "Direct requests blocked (HTTP 403); awaiting Impact affiliate feed.",
     affiliate: { network: "impact", active: false },
     crawler: {
-      preferredMethods: ["shopify-json", "json-ld", "playwright"],
+      preferredMethods: ["shopify-json", "json-ld"],
       rateLimitMs: 2000,
       sitemapUrls: ["https://www.rhone.com/sitemap.xml"],
       salePaths: ["/collections/sale"],
@@ -208,13 +235,14 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://bonobos.com",
     priceTier: "mid-premium",
     swatchHex: "#2A4365",
+    ingestionStatus: "active",
     studentDiscount: {
       provider: "SheerID",
       offer: "20% student discount program",
     },
     affiliate: { network: "rakuten", active: false },
     crawler: {
-      preferredMethods: ["shopify-json", "json-ld", "internal-api", "playwright"],
+      preferredMethods: ["shopify-json", "json-ld"],
       rateLimitMs: 2000,
       sitemapUrls: ["https://bonobos.com/sitemap.xml"],
       salePaths: ["/shop/final-sale"],
@@ -232,11 +260,13 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.ralphlauren.com",
     priceTier: "luxury-tailored",
     swatchHex: "#0F1D32",
+    ingestionStatus: "blocked",
+    statusNote: "Direct requests blocked (HTTP 403); awaiting Rakuten affiliate feed.",
     affiliate: { network: "rakuten", active: false },
     crawler: {
-      preferredMethods: ["json-ld", "internal-api", "playwright"],
+      preferredMethods: ["rakuten-feed"],
       rateLimitMs: 2500,
-      sitemapUrls: ["https://www.ralphlauren.com/sitemap_index.xml"],
+      sitemapUrls: [],
       salePaths: ["/sale-men"],
     },
   },
@@ -249,13 +279,15 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.jcrew.com",
     priceTier: "accessible",
     swatchHex: "#324A5E",
+    ingestionStatus: "planned",
+    statusNote: "Catalog adapter planned.",
     studentDiscount: {
       provider: "SheerID",
       offer: "15% student discount program",
     },
     affiliate: { network: "rakuten", active: false },
     crawler: {
-      preferredMethods: ["json-ld", "internal-api", "playwright"],
+      preferredMethods: ["json-ld", "internal-api"],
       rateLimitMs: 2000,
       sitemapUrls: ["https://www.jcrew.com/sitemap_index.xml"],
       salePaths: ["/sale/men"],
@@ -270,13 +302,15 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.charlestyrwhitt.com",
     priceTier: "accessible",
     swatchHex: "#1C3144",
+    ingestionStatus: "planned",
+    statusNote: "Catalog adapter planned.",
     studentDiscount: {
       provider: "UNiDAYS",
       offer: "15% student discount program",
     },
     affiliate: { network: "awin", active: false },
     crawler: {
-      preferredMethods: ["json-ld", "internal-api", "playwright"],
+      preferredMethods: ["json-ld", "internal-api"],
       rateLimitMs: 2000,
       sitemapUrls: ["https://www.charlestyrwhitt.com/us/sitemap_index.xml"],
       salePaths: ["/us/clearance/"],
@@ -291,9 +325,11 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://bananarepublic.gap.com",
     priceTier: "accessible",
     swatchHex: "#4A4238",
+    ingestionStatus: "planned",
+    statusNote: "Catalog adapter planned.",
     affiliate: { network: "rakuten", active: false },
     crawler: {
-      preferredMethods: ["json-ld", "internal-api", "playwright"],
+      preferredMethods: ["json-ld", "internal-api"],
       rateLimitMs: 2000,
       sitemapUrls: ["https://bananarepublic.gap.com/sitemap_index.xml"],
       salePaths: ["/browse/category.do?cid=1014757"],
@@ -308,11 +344,13 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.toddsnyder.com",
     priceTier: "luxury-tailored",
     swatchHex: "#1E2D24",
+    ingestionStatus: "blocked",
+    statusNote: "Direct requests blocked (HTTP 403); awaiting Rakuten affiliate feed.",
     affiliate: { network: "rakuten", active: false },
     crawler: {
-      preferredMethods: ["shopify-json", "json-ld", "playwright"],
+      preferredMethods: ["rakuten-feed"],
       rateLimitMs: 2000,
-      sitemapUrls: ["https://www.toddsnyder.com/sitemap.xml"],
+      sitemapUrls: [],
       salePaths: ["/collections/sale"],
       shopifyCollections: ["sale", "suits-tailoring", "sweaters"],
     },
@@ -326,9 +364,11 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://suitsupply.com",
     priceTier: "luxury-tailored",
     swatchHex: "#16202A",
+    ingestionStatus: "planned",
+    statusNote: "Catalog adapter planned.",
     affiliate: { network: "cj", active: false },
     crawler: {
-      preferredMethods: ["json-ld", "internal-api", "playwright"],
+      preferredMethods: ["json-ld", "internal-api"],
       rateLimitMs: 2500,
       sitemapUrls: ["https://suitsupply.com/en-us/sitemap_index.xml"],
       salePaths: ["/en-us/men/suits"],
@@ -343,11 +383,13 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.spierandmackay.com",
     priceTier: "accessible",
     swatchHex: "#243B53",
+    ingestionStatus: "blocked",
+    statusNote: "Direct requests blocked (HTTP 403); awaiting affiliate feed.",
     affiliate: { network: "shareasale", active: false },
     crawler: {
-      preferredMethods: ["json-ld", "internal-api", "playwright"],
+      preferredMethods: ["json-ld"],
       rateLimitMs: 2000,
-      sitemapUrls: ["https://www.spierandmackay.com/sitemap.xml"],
+      sitemapUrls: [],
       salePaths: ["/collection/sale"],
     },
   },
@@ -360,13 +402,15 @@ export const BRANDS: readonly BrandConfig[] = [
     baseUrl: "https://www.publicrec.com",
     priceTier: "mid-premium",
     swatchHex: "#364152",
+    ingestionStatus: "planned",
+    statusNote: "Catalog adapter planned.",
     studentDiscount: {
       provider: "SheerID",
       offer: "15% student discount program",
     },
     affiliate: { network: "impact", active: false },
     crawler: {
-      preferredMethods: ["shopify-json", "json-ld", "playwright"],
+      preferredMethods: ["shopify-json", "json-ld"],
       rateLimitMs: 2000,
       sitemapUrls: ["https://www.publicrec.com/sitemap.xml"],
       salePaths: ["/collections/sale"],
@@ -377,6 +421,14 @@ export const BRANDS: readonly BrandConfig[] = [
 
 export const BRAND_BY_SLUG: Record<string, BrandConfig> = Object.fromEntries(
   BRANDS.map((brand) => [brand.slug, brand])
+);
+
+export const ACTIVE_BRAND_SLUGS: ReadonlySet<string> = new Set(
+  BRANDS.filter((b) => b.ingestionStatus === "active").map((b) => b.slug)
+);
+
+export const FEED_PENDING_BRAND_SLUGS: ReadonlySet<string> = new Set(
+  BRANDS.filter((b) => b.ingestionStatus === "feed_pending").map((b) => b.slug)
 );
 
 export type OutboundValidationResult =
@@ -426,7 +478,9 @@ export function validateAndBuildOutboundUrl(
       const affHost = affiliateParsed.hostname.toLowerCase();
       const affAllowed =
         affiliateParsed.protocol === "https:" &&
-        (ALLOWED_AFFILIATE_HOSTS.has(affHost) || affHost.endsWith(".sjv.io") || affHost.endsWith(".pxf.io"));
+        (ALLOWED_AFFILIATE_HOSTS.has(affHost) ||
+          affHost.endsWith(".sjv.io") ||
+          affHost.endsWith(".pxf.io"));
       if (!affAllowed) {
         return { ok: false, reason: `Disallowed affiliate host: ${affHost}` };
       }

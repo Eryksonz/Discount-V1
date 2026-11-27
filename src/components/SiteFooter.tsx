@@ -38,14 +38,24 @@ export function SiteFooter() {
             </div>
             <ul className="space-y-1.5 text-xs">
               <li>
-                <Link href="/about" className="hover:text-white transition-colors">
-                  About Tape &amp; Tailor
+                <Link href="/kits" className="hover:text-white transition-colors">
+                  Interview &amp; Internship Kit Builder
                 </Link>
               </li>
               <li>
-                <a href="#methodology" className="hover:text-white transition-colors">
-                  Deal Score &amp; 90-Day Median Formula
-                </a>
+                <Link href="/calendar" className="hover:text-white transition-colors">
+                  Annual Menswear Sale Calendar
+                </Link>
+              </li>
+              <li>
+                <Link href="/students" className="hover:text-white transition-colors">
+                  Student Discounts (.edu / SheerID / UNiDAYS)
+                </Link>
+              </li>
+              <li>
+                <Link href="/about" className="hover:text-white transition-colors">
+                  About Tape &amp; Tailor
+                </Link>
               </li>
               <li>
                 <Link href="/privacy" className="hover:text-white transition-colors">

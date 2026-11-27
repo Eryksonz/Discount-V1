@@ -5,9 +5,20 @@ interface SiteHeaderProps {
   source: "postgres" | "demo-fallback";
   isDemoData: boolean;
   unclassifiedCount: number;
+  activeNav?: "desk" | "kits" | "calendar" | "students" | "watchlist" | "about" | "admin";
 }
 
-export function SiteHeader({ source, isDemoData, unclassifiedCount }: SiteHeaderProps) {
+export function SiteHeader({
+  source,
+  isDemoData,
+  unclassifiedCount,
+  activeNav = "desk",
+}: SiteHeaderProps) {
+  const linkClass = (key: NonNullable<SiteHeaderProps["activeNav"]>) =>
+    activeNav === key
+      ? "font-semibold text-[#0F1D32] border-b-2 border-[#B8924A] pb-0.5"
+      : "text-[#3E4C5E] hover:text-[#0F1D32] transition-colors";
+
   return (
     <header className="bg-[#FAF8F3] border-b border-[#E2DCD0]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -24,29 +35,26 @@ export function SiteHeader({ source, isDemoData, unclassifiedCount }: SiteHeader
             </Link>
           </div>
 
-          <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-            <Link
-              href="/"
-              className="font-semibold text-[#0F1D32] border-b-2 border-[#B8924A] pb-0.5"
-            >
+          <nav className="flex flex-wrap items-center gap-x-4 sm:gap-x-5 gap-y-2 text-sm">
+            <Link href="/" className={linkClass("desk")}>
               Deal Desk
             </Link>
-            <Link
-              href="/watchlist"
-              className="text-[#3E4C5E] hover:text-[#0F1D32] transition-colors"
-            >
+            <Link href="/kits" className={linkClass("kits")}>
+              Interview Kits
+            </Link>
+            <Link href="/calendar" className={linkClass("calendar")}>
+              Sale Calendar
+            </Link>
+            <Link href="/students" className={linkClass("students")}>
+              Students
+            </Link>
+            <Link href="/watchlist" className={linkClass("watchlist")}>
               Watchlist
             </Link>
-            <Link
-              href="/about"
-              className="text-[#3E4C5E] hover:text-[#0F1D32] transition-colors"
-            >
+            <Link href="/about" className={linkClass("about")}>
               About
             </Link>
-            <Link
-              href="/admin"
-              className="text-[#3E4C5E] hover:text-[#0F1D32] transition-colors flex items-center gap-1"
-            >
+            <Link href="/admin" className={`${linkClass("admin")} flex items-center gap-1`}>
               Admin
               {unclassifiedCount > 0 && (
                 <span className="font-mono text-[10px] rounded-full bg-[#EFEAE0] px-1.5 py-0.5 text-[#0F1D32]">
@@ -54,13 +62,7 @@ export function SiteHeader({ source, isDemoData, unclassifiedCount }: SiteHeader
                 </span>
               )}
             </Link>
-            <a
-              href="#methodology"
-              className="text-[#3E4C5E] hover:text-[#0F1D32] transition-colors"
-            >
-              Methodology
-            </a>
-            <div className="hidden lg:flex items-center gap-2 pl-2 border-l border-[#E2DCD0]">
+            <div className="hidden xl:flex items-center gap-2 pl-2 border-l border-[#E2DCD0]">
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-mono text-[11px] border ${
                   source === "postgres" && !isDemoData

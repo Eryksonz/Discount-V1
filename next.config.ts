@@ -14,6 +14,7 @@ const nextConfig: NextConfig = {
       { protocol: "https", hostname: "**.petermillar.com" },
       { protocol: "https", hostname: "**.vineyardvines.com" },
       { protocol: "https", hostname: "**.brooksbrothers.com" },
+      { protocol: "https", hostname: "**.bynder.com" },
       { protocol: "https", hostname: "**.johnnie-o.com" },
       { protocol: "https", hostname: "**.mizzenandmain.com" },
       { protocol: "https", hostname: "**.rhone.com" },

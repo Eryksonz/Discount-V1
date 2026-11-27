@@ -1,4 +1,4 @@
-import { BRANDS, BRAND_BY_SLUG } from "@config/brands";
+import { BRANDS, BRAND_BY_SLUG, FEED_PENDING_BRAND_SLUGS, type BrandIngestionStatus } from "@config/brands";
 import { getSqlClient, isDatabaseConfigured } from "@/db";
 import { generateSeedCatalog, type SeededProductRecord } from "@/db/seed-data";
 import type { ActiveBrandPromo, ActiveSaleEvent } from "@/lib/promos";
@@ -78,6 +78,8 @@ export interface BrandCodeStat {
   name: string;
   brandCode: string;
   swatchHex: string;
+  ingestionStatus: BrandIngestionStatus;
+  statusNote?: string;
   activeDeals: number;
   avgBelowMedianPct: number;
   topDealScore: number;
@@ -293,6 +295,7 @@ export async function queryCatalogFeed(
   if (sql) {
     try {
       const q = params.q?.trim() ?? "";
+      const feedPendingList = Array.from(FEED_PENDING_BRAND_SLUGS);
       const whereClauses: string[] = [`p.classification_status IN ('classified', 'manual')`];
       const bindValues: unknown[] = [];
 
@@ -300,6 +303,11 @@ export async function queryCatalogFeed(
         bindValues.push(val);
         return `$${bindValues.length}`;
       };
+
+      if (feedPendingList.length > 0) {
+        const pendingRef = pushParam(feedPendingList);
+        whereClauses.push(`NOT (p.brand_slug = ANY(${pendingRef}::text[]))`);
+      }
 
       let searchRankExpr = "0";
       if (q) {
@@ -531,13 +539,16 @@ export async function queryCatalogFeed(
       );
       const brandCounts: Record<string, number> = {};
       const brandStrip: BrandCodeStat[] = BRANDS.map((brand) => {
-        const agg = brandAggMap.get(brand.slug);
+        const isPending = brand.ingestionStatus === "feed_pending";
+        const agg = isPending ? undefined : brandAggMap.get(brand.slug);
         brandCounts[brand.slug] = Number(agg?.total_count ?? 0);
         return {
           slug: brand.slug,
           name: brand.name,
           brandCode: brand.code,
           swatchHex: brand.swatchHex,
+          ingestionStatus: brand.ingestionStatus,
+          statusNote: brand.statusNote,
           activeDeals: Number(agg?.active_deals ?? 0),
           avgBelowMedianPct: Number(agg?.avg_below_median ?? 0),
           topDealScore: Number(agg?.top_score ?? 0),
@@ -593,7 +604,11 @@ export async function queryCatalogFeed(
   assertDemoFallbackAllowed("PostgreSQL unavailable");
   const allRaw = getFallbackCatalog();
   const classified = allRaw
-    .filter((i) => i.classificationStatus === "classified")
+    .filter(
+      (i) =>
+        i.classificationStatus === "classified" &&
+        !FEED_PENDING_BRAND_SLUGS.has(i.brandSlug)
+    )
     .map(toFeedItem);
   const unclassifiedCount = allRaw.filter((i) => i.classificationStatus === "unclassified").length;
 
@@ -701,7 +716,12 @@ export async function queryCatalogFeed(
       name: brand.name,
       brandCode: brand.code,
       swatchHex: brand.swatchHex,
-      activeDeals: verified.filter((v) => v.brandSlug === brand.slug).length,
+      ingestionStatus: brand.ingestionStatus,
+      statusNote: brand.statusNote,
+      activeDeals:
+        brand.ingestionStatus === "feed_pending"
+          ? 0
+          : verified.filter((v) => v.brandSlug === brand.slug).length,
       avgBelowMedianPct: 0,
       topDealScore: 0,
     })),
@@ -719,6 +739,7 @@ export async function getProductDetailBySlug(slug: string): Promise<ProductFeedI
     const rows = await sql`SELECT * FROM products WHERE slug = ${slug} LIMIT 1`;
     if (!rows[0]) return null;
     const row = rows[0];
+    if (FEED_PENDING_BRAND_SLUGS.has(String(row.brand_slug))) return null;
     const [snaps, promos, events] = await Promise.all([
       sql`
         SELECT product_id, price_cents, original_price_cents, compare_at_gap_pct, in_stock, captured_at

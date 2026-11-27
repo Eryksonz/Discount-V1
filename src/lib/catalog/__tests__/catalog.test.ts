@@ -40,11 +40,18 @@ describe("Deterministic seed catalog, DEMO_MODE gating, and /go/[id] allowlist",
     expect(excluded.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("supports typo-tolerant search without any AI/embeddings", async () => {
-    const res = await queryCatalogFeed({ q: "Petr Milar" });
+  it("supports typo-tolerant search without any AI/embeddings and hides feed_pending brands", async () => {
+    const res = await queryCatalogFeed({ q: "Broks Brothes" });
     expect(res.isDemoData).toBe(true);
     expect(res.totalMatched).toBeGreaterThan(0);
-    expect(res.items.some((item) => item.brandSlug === "peter-millar")).toBe(true);
+    expect(res.items.some((item) => item.brandSlug === "brooks-brothers")).toBe(true);
+
+    // Peter Millar is marked feed_pending and must not expose unverified prices in public feed
+    const pm = await queryCatalogFeed({ brands: ["peter-millar"] });
+    expect(pm.totalMatched).toBe(0);
+    expect(pm.brandStrip.find((b) => b.slug === "peter-millar")?.ingestionStatus).toBe(
+      "feed_pending"
+    );
   });
 
   it("filters accurately by brand, occasion, maxPrice, and verified deal signal", async () => {

@@ -54,7 +54,7 @@ export const OUT_OF_SCOPE_RULES: readonly CategoryRule[] = [
     category: OUT_OF_SCOPE_CATEGORY,
     subcategory: "Home & Lifestyle",
     pattern:
-      /\b(blanket|throw\s+pillow|pillow\s*case|candle|mug|tumbler|glassware|coaster|towel|bedding|duvet|quilt\b|rug\b|mat\b|chair|umbrella|cooler|sticker|keychain|ornament|dog\s+collar|dog\s+bed|pet\b|leash|book\b|magazine|cologne|perfume|fragrance|soap|lotion|grooming|sunglasses|eyewear|shoe\s+tree|garment\s+bag|shoe\s+bag|valet\s+tray|category:home|home\s*&\s*wellness)\b/i,
+      /\b(blanket|throw\s+pillow|pillow\s*case|candle|mug|tumbler|glassware|coaster|towel|bedding|duvet|quilt\b|rug\b|mat\b|chair|umbrella|cooler|sticker|keychain|ornament|dog\s+collar|dog\s+bed|pet\b|leash|book\b|magazine|cologne|eau\s+de\s+toilette|perfume|fragrance|soap|lotion|grooming|sunglasses|eyewear|shoe\s+tree|garment\s+bag|shoe\s+bag|valet\s+tray|handkerchiefs?|stationery|correspondence\s+cards?|envelopes?|collar\s+stays?|cuff\s*links?|shirt\s+studs?|cummerbund|suspenders?|category:home|home\s*&\s*wellness|gifts\s*>\s*gifts\s+for\s+him)\b/i,
     exclude: /\b(quilted\s+(vest|jacket|coat|pullover)|blanket\s+stripe\s+(zip|sweater|shirt|pullover|cardigan))\b/i,
     priority: 5,
   },
@@ -63,7 +63,7 @@ export const OUT_OF_SCOPE_RULES: readonly CategoryRule[] = [
     category: OUT_OF_SCOPE_CATEGORY,
     subcategory: "Hats & Casual Bags",
     pattern:
-      /\b(baseball\s+(hat|cap)|trucker\s+(hat|cap)|dad\s+hat|bucket\s+hat|sun\s+hat|straw\s+hat|beanie|visor|snapback|ball\s*cap|\bhat\b|accessories\s+hats|accessories\s+bags|tote\s+bag|reusable\s+tote|\btote\b|pouch|money\s+clip|backpack|duffel|duffle|weekender|dopp\s+kit|wallet|card\s+holder|passport\s+holder|messenger\s+bag|sling\s+bag|fanny\s+pack|scarf|gloves?)\b/i,
+      /\b(baseball\s+(hat|cap)|trucker\s+(hat|cap)|dad\s+hat|bucket\s+hat|sun\s+hat|straw\s+hat|beanie|visor|snapback|ball\s*cap|\bhat\b|accessories\s+hats|accessories\s+bags|tote\s+bag|reusable\s+tote|\btote\b|pouch|money\s+clip|backpack|duffel|duffle|weekender|dopp\s+kit|wallet|card\s+holder|card\s+case|mens\s+small\s+goods|passport\s+holder|messenger\s+bag|sling\s+bag|fanny\s+pack|scarf|gloves?)\b/i,
     priority: 6,
   },
   {

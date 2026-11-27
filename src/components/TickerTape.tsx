@@ -10,7 +10,8 @@ interface TickerTapeProps {
 
 /**
  * Editorial brand-index strip using internal 4-character Brand Codes (not stock quotes).
- * Clicking any brand filters the feed to that retailer.
+ * Clicking any active brand filters the feed to that retailer.
+ * Brands in `feed_pending` display a clear "FEED PENDING" status instead of unverified prices.
  */
 export function TickerTape({ items, selectedBrands, onToggleBrand }: TickerTapeProps) {
   const doubled = [...items, ...items];
@@ -31,17 +32,27 @@ export function TickerTape({ items, selectedBrands, onToggleBrand }: TickerTapeP
           <div className="ticker-track py-1.5">
             {doubled.map((stat, idx) => {
               const active = selectedBrands.includes(stat.slug);
+              const isFeedPending = stat.ingestionStatus === "feed_pending";
               return (
                 <button
                   key={`${stat.slug}-${idx}`}
                   type="button"
-                  onClick={() => onToggleBrand(stat.slug)}
+                  disabled={isFeedPending}
+                  onClick={() => {
+                    if (!isFeedPending) onToggleBrand(stat.slug);
+                  }}
                   className={`mx-1.5 inline-flex items-center gap-2 rounded px-2.5 py-0.5 text-xs transition-colors border ${
-                    active
-                      ? "bg-[#B8924A]/25 border-[#B8924A] text-white"
-                      : "bg-transparent border-white/10 hover:bg-white/10 text-[#DCE3EC]"
+                    isFeedPending
+                      ? "bg-white/5 border-white/10 text-[#9AA8BA] cursor-not-allowed opacity-80"
+                      : active
+                        ? "bg-[#B8924A]/25 border-[#B8924A] text-white"
+                        : "bg-transparent border-white/10 hover:bg-white/10 text-[#DCE3EC]"
                   }`}
-                  title={`Filter by ${stat.name} (Brand code: ${stat.brandCode} · ${stat.activeDeals} verified deals)`}
+                  title={
+                    isFeedPending
+                      ? `${stat.name}: ${stat.statusNote ?? "Feed pending"}`
+                      : `Filter by ${stat.name} (Brand code: ${stat.brandCode} · ${stat.activeDeals} verified deals)`
+                  }
                 >
                   <span className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wider text-[#E5C98B]">
                     {stat.brandCode}
@@ -49,18 +60,26 @@ export function TickerTape({ items, selectedBrands, onToggleBrand }: TickerTapeP
                   <span className="font-sans text-xs text-white/90 hidden sm:inline">
                     {stat.name}
                   </span>
-                  {stat.avgBelowMedianPct > 0 ? (
-                    <span className="font-mono text-[11px] text-[#4ADE80] font-semibold tabular-nums">
-                      -{stat.avgBelowMedianPct}% med
+                  {isFeedPending ? (
+                    <span className="font-mono text-[10px] uppercase tracking-wider text-[#E5C98B]/90">
+                      Feed pending
                     </span>
                   ) : (
-                    <span className="font-mono text-[11px] text-[#94A3B8] tabular-nums">
-                      0% med
-                    </span>
+                    <>
+                      {stat.avgBelowMedianPct > 0 ? (
+                        <span className="font-mono text-[11px] text-[#4ADE80] font-semibold tabular-nums">
+                          -{stat.avgBelowMedianPct}% med
+                        </span>
+                      ) : (
+                        <span className="font-mono text-[11px] text-[#94A3B8] tabular-nums">
+                          0% med
+                        </span>
+                      )}
+                      <span className="font-mono text-[10px] text-[#9AA8BA] tabular-nums">
+                        ({stat.activeDeals})
+                      </span>
+                    </>
                   )}
-                  <span className="font-mono text-[10px] text-[#9AA8BA] tabular-nums">
-                    ({stat.activeDeals})
-                  </span>
                 </button>
               );
             })}

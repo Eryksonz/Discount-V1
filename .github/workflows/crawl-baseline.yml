@@ -2,12 +2,12 @@ name: Baseline Daily Crawl
 
 on:
   schedule:
-    # Daily full-catalog baseline crawl at 06:00 UTC (~2-3 min/day => ~60-90 min/month)
+    # Daily baseline crawl at 06:00 UTC (Shopify full catalog + sitemap-incremental JSON-LD)
     - cron: "0 6 * * *"
   workflow_dispatch:
     inputs:
       brand:
-        description: "Comma-separated brand slugs (leave blank for all verified pilot brands)"
+        description: "Comma-separated brand slugs (leave blank for all active brands: faherty,bonobos,brooks-brothers,vineyard-vines)"
         required: false
         default: ""
       mode:
@@ -20,14 +20,19 @@ on:
           - high-frequency
           - manual
       max_products:
-        description: "Optional safety-cap override per brand (leave blank to use brand config default of 5000)"
+        description: "Optional safety-cap override per brand (leave blank for brand config default)"
         required: false
         default: ""
+      force_full:
+        description: "Force re-fetch of all discovered sitemap URLs ignoring 7-day freshness"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   crawl:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 90
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,7 +46,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run standalone full-catalog TypeScript crawler
+      - name: Run standalone TypeScript crawler
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           CRAWLER_CONTACT_EMAIL: ${{ secrets.CRAWLER_CONTACT_EMAIL }}
@@ -61,8 +66,12 @@ jobs:
           if [ -n "${{ github.event.inputs.max_products }}" ]; then
             MAX_ARG="--max=${{ github.event.inputs.max_products }}"
           fi
+          FORCE_ARG=""
+          if [ "${{ github.event.inputs.force_full }}" = "true" ]; then
+            FORCE_ARG="--force-full"
+          fi
           MODE="${{ github.event.inputs.mode || 'baseline' }}"
-          npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $MAX_ARG
+          npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $MAX_ARG $FORCE_ARG
 
       - name: Evaluate deduplicated price-drop alerts
         env:

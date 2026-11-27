@@ -10,15 +10,19 @@ import { evaluateProductDeal, validatePriceUpdate, type PriceSnapshotPoint } fro
 import { uploadCrawlReport } from "@/lib/neon/storage";
 import { getBrandAdapter } from "./adapters";
 import { PoliteHttpClient } from "./http-client";
+import type { IncrementalSelectionResult } from "./sitemap";
 import type { AllCategorySlug } from "@config/categories";
 
 export interface CrawlRunSummary {
   brandSlug: string;
   mode: "baseline" | "high-frequency" | "manual";
-  status: "completed" | "failed" | "circuit_open";
+  status: "completed" | "failed" | "circuit_open" | "skipped";
   methodUsed: string | null;
   durationMs: number;
   productsSeen: number;
+  discoveredCatalogCount: number | null;
+  urlsFetched: number | null;
+  incrementalStats: IncrementalSelectionResult["stats"] | null;
   expectedMinProducts: number | null;
   newProducts: number;
   priceChanges: number;
@@ -57,6 +61,24 @@ export function detectCatalogDropAnomaly(
   };
 }
 
+/**
+ * Detects a >30% parse-yield drop on sitemap-driven JSON-LD crawls (e.g. if a brand changes its
+ * markup and >30% of fetched product pages fail to yield a valid product).
+ */
+export function detectParseYieldDrop(
+  urlsFetched: number | null | undefined,
+  productsParsed: number
+): { anomalous: boolean; dropPct: number | null } {
+  if (!urlsFetched || urlsFetched < 10) {
+    return { anomalous: false, dropPct: null };
+  }
+  const dropPct = ((urlsFetched - productsParsed) / urlsFetched) * 100;
+  return {
+    anomalous: dropPct > SANITY_CHECK_LIMITS.maxBrandCatalogDropPct,
+    dropPct: Math.round(dropPct * 10) / 10,
+  };
+}
+
 function slugify(value: string): string {
   return value
     .toLowerCase()
@@ -79,8 +101,10 @@ async function sendAdminDropAlert(params: {
   previousCount: number;
   currentCount: number;
   dropPct: number;
+  reason?: string;
 }): Promise<void> {
-  const message = `[ALERT] ${params.brandName} (${params.brandSlug}) parsed product count dropped ${params.dropPct}% (${params.previousCount} -> ${params.currentCount}). Site markup or endpoint may have changed.`;
+  const reasonNote = params.reason ? ` (${params.reason})` : "";
+  const message = `[ALERT] ${params.brandName} (${params.brandSlug}) parsed product count dropped ${params.dropPct}% (${params.previousCount} -> ${params.currentCount})${reasonNote}. Site markup or endpoint may have changed.`;
   console.error(message);
 
   const apiKey = process.env.RESEND_API_KEY;
@@ -106,12 +130,43 @@ export async function runBrandCrawl(params: {
   mode: "baseline" | "high-frequency" | "manual";
   maxProducts?: number;
   dryRun?: boolean;
+  forceFull?: boolean;
 }): Promise<CrawlRunSummary> {
   const startedAt = new Date();
   const brandConfig = BRAND_BY_SLUG[params.brandSlug];
   if (!brandConfig) {
     throw new Error(`Unknown brand slug: ${params.brandSlug}`);
   }
+
+  const expectedMin = brandConfig.crawler.expectedMinProducts ?? null;
+
+  if (brandConfig.ingestionStatus === "feed_pending" || brandConfig.ingestionStatus === "blocked") {
+    console.warn(
+      `[Crawler] Skipping ${brandConfig.slug} (status=${brandConfig.ingestionStatus}): ${brandConfig.statusNote ?? "disabled"}`
+    );
+    return {
+      brandSlug: brandConfig.slug,
+      mode: params.mode,
+      status: "skipped",
+      methodUsed: null,
+      durationMs: Date.now() - startedAt.getTime(),
+      productsSeen: 0,
+      discoveredCatalogCount: null,
+      urlsFetched: null,
+      incrementalStats: null,
+      expectedMinProducts: expectedMin,
+      newProducts: 0,
+      priceChanges: 0,
+      quarantinedCount: 0,
+      classifiedCount: 0,
+      outOfScopeCount: 0,
+      unclassifiedCount: 0,
+      errorsCount: 0,
+      catalogDropAlertTriggered: false,
+      dropPctVsPreviousRun: null,
+    };
+  }
+
   const adapter = getBrandAdapter(params.brandSlug);
   if (!adapter) {
     throw new Error(`No adapter registered for brand: ${params.brandSlug}`);
@@ -124,7 +179,6 @@ export async function runBrandCrawl(params: {
 
   const safetyCap =
     params.maxProducts ?? brandConfig.crawler.maxProductsSafetyCap ?? 5000;
-  const expectedMin = brandConfig.crawler.expectedMinProducts ?? null;
   const http = new PoliteHttpClient({ defaultRateLimitMs: brandConfig.crawler.rateLimitMs });
 
   if (params.dryRun || !dbUrl) {
@@ -132,6 +186,7 @@ export async function runBrandCrawl(params: {
       brand: brandConfig,
       http,
       maxProducts: safetyCap,
+      forceFull: params.forceFull,
     });
     let classifiedCount = 0;
     let outOfScopeCount = 0;
@@ -155,6 +210,9 @@ export async function runBrandCrawl(params: {
       methodUsed: res.methodUsed,
       durationMs: Date.now() - startedAt.getTime(),
       productsSeen: res.products.length,
+      discoveredCatalogCount: res.discoveredCatalogCount ?? null,
+      urlsFetched: res.urlsFetched ?? null,
+      incrementalStats: res.incrementalStats ?? null,
       expectedMinProducts: expectedMin,
       newProducts: res.products.length,
       priceChanges: res.products.length,
@@ -207,6 +265,9 @@ export async function runBrandCrawl(params: {
         methodUsed: null,
         durationMs: Date.now() - startedAt.getTime(),
         productsSeen: 0,
+        discoveredCatalogCount: null,
+        urlsFetched: null,
+        incrementalStats: null,
         expectedMinProducts: expectedMin,
         newProducts: 0,
         priceChanges: 0,
@@ -220,8 +281,8 @@ export async function runBrandCrawl(params: {
       };
     }
 
-    // Batch-load custom rules, prior run, existing products, and existing snapshots in 4 single queries
-    const [customRuleRows, prevRuns, existingProductRows, existingSnapshotRows] =
+    // Batch-load custom rules, prior run, existing products, active alerts, and snapshots
+    const [customRuleRows, prevRuns, existingProductRows, existingSnapshotRows, activeAlertRows] =
       await Promise.all([
         db.select().from(schema.customClassificationRules),
         db
@@ -246,6 +307,10 @@ export async function runBrandCrawl(params: {
           .innerJoin(schema.products, eq(schema.priceSnapshots.productId, schema.products.id))
           .where(eq(schema.products.brandId, brandRow.id))
           .orderBy(schema.priceSnapshots.capturedAt),
+        db
+          .select({ productId: schema.alerts.productId })
+          .from(schema.alerts)
+          .where(eq(schema.alerts.active, true)),
       ]);
 
     const prevRun = prevRuns[0];
@@ -260,6 +325,15 @@ export async function runBrandCrawl(params: {
     }));
 
     const existingById = new Map(existingProductRows.map((p) => [p.id, p]));
+    const priorityProductIds = new Set(activeAlertRows.map((a) => a.productId));
+    const existingCrawlStates = existingProductRows.map((p) => ({
+      id: p.id,
+      productUrl: p.productUrl,
+      lastCheckedAt: p.lastCheckedAt,
+      inStock: p.inStock,
+      dealScore: p.dealScore,
+    }));
+
     const snapshotsByProductId = new Map<string, PriceSnapshotPoint[]>();
     for (const s of existingSnapshotRows) {
       const list = snapshotsByProductId.get(s.productId) ?? [];
@@ -272,11 +346,14 @@ export async function runBrandCrawl(params: {
       snapshotsByProductId.set(s.productId, list);
     }
 
-    // Execute polite full-catalog adapter
+    // Execute polite adapter (full Shopify pagination OR incremental sitemap JSON-LD)
     const crawlRes = await adapter.crawl({
       brand: brandConfig,
       http,
       maxProducts: safetyCap,
+      existingProducts: existingCrawlStates,
+      priorityProductIds,
+      forceFull: params.forceFull,
     });
 
     let newProducts = 0;
@@ -506,11 +583,23 @@ export async function runBrandCrawl(params: {
       .where(eq(schema.brands.id, brandRow.id));
 
     const durationMs = Date.now() - startedAt.getTime();
+    const isFreshIncrementalNoop =
+      Boolean(crawlRes.incrementalStats) &&
+      crawlRes.incrementalStats!.skippedFresh > 0 &&
+      (crawlRes.urlsFetched ?? 0) === 0;
     const status = crawlRes.circuitTripped
       ? "circuit_open"
-      : crawlRes.products.length > 0
+      : crawlRes.products.length > 0 || isFreshIncrementalNoop
         ? "completed"
         : "failed";
+
+    // For sitemap-driven incremental crawls, `effectiveCatalogCount` is total discovered sitemap URLs
+    // so an incremental batch of 50 updated URLs isn't misread as a >30% catalog collapse,
+    // while both sitemap shrinkage (>30%) AND parse-yield failure (>30% of fetched pages unparseable) alert loudly.
+    const effectiveCatalogCount =
+      crawlRes.discoveredCatalogCount !== undefined
+        ? crawlRes.discoveredCatalogCount
+        : crawlRes.products.length;
 
     await db.insert(schema.crawlRuns).values({
       brandId: brandRow.id,
@@ -519,7 +608,7 @@ export async function runBrandCrawl(params: {
       startedAt,
       finishedAt: new Date(),
       durationMs,
-      productsSeen: crawlRes.products.length,
+      productsSeen: effectiveCatalogCount,
       priceChanges,
       newProducts,
       quarantinedCount,
@@ -527,20 +616,38 @@ export async function runBrandCrawl(params: {
       errorSummary: crawlRes.errors.length > 0 ? crawlRes.errors.slice(0, 5).join(" | ") : null,
     });
 
-    const anomaly = detectCatalogDropAnomaly(prevRun?.productsSeen, crawlRes.products.length);
-    if (anomaly.anomalous && anomaly.dropPct !== null) {
+    const catalogAnomaly = detectCatalogDropAnomaly(prevRun?.productsSeen, effectiveCatalogCount);
+    const parseYieldAnomaly = detectParseYieldDrop(crawlRes.urlsFetched, crawlRes.products.length);
+
+    let alertTriggered = false;
+    let reportedDropPct = catalogAnomaly.dropPct;
+
+    if (catalogAnomaly.anomalous && catalogAnomaly.dropPct !== null && !params.maxProducts) {
+      alertTriggered = true;
       await sendAdminDropAlert({
         brandName: brandConfig.name,
         brandSlug: brandConfig.slug,
         previousCount: prevRun!.productsSeen,
+        currentCount: effectiveCatalogCount,
+        dropPct: catalogAnomaly.dropPct,
+        reason: "catalog count drop vs previous run",
+      });
+    } else if (parseYieldAnomaly.anomalous && parseYieldAnomaly.dropPct !== null) {
+      alertTriggered = true;
+      reportedDropPct = parseYieldAnomaly.dropPct;
+      await sendAdminDropAlert({
+        brandName: brandConfig.name,
+        brandSlug: brandConfig.slug,
+        previousCount: crawlRes.urlsFetched ?? 0,
         currentCount: crawlRes.products.length,
-        dropPct: anomaly.dropPct,
+        dropPct: parseYieldAnomaly.dropPct,
+        reason: "JSON-LD parse yield drop on fetched product pages",
       });
     }
 
-    if (expectedMin !== null && crawlRes.products.length < expectedMin) {
+    if (expectedMin !== null && effectiveCatalogCount < expectedMin && !params.maxProducts) {
       console.warn(
-        `[Crawler] Coverage warning for ${brandConfig.slug}: found ${crawlRes.products.length} products vs expected minimum ${expectedMin}.`
+        `[Crawler] Coverage warning for ${brandConfig.slug}: found ${effectiveCatalogCount} products vs expected minimum ${expectedMin}.`
       );
     }
 
@@ -551,6 +658,9 @@ export async function runBrandCrawl(params: {
       methodUsed: crawlRes.methodUsed,
       durationMs,
       productsSeen: crawlRes.products.length,
+      discoveredCatalogCount: crawlRes.discoveredCatalogCount ?? null,
+      urlsFetched: crawlRes.urlsFetched ?? null,
+      incrementalStats: crawlRes.incrementalStats ?? null,
       expectedMinProducts: expectedMin,
       newProducts,
       priceChanges,
@@ -559,8 +669,8 @@ export async function runBrandCrawl(params: {
       outOfScopeCount,
       unclassifiedCount,
       errorsCount: crawlRes.errors.length,
-      catalogDropAlertTriggered: anomaly.anomalous,
-      dropPctVsPreviousRun: anomaly.dropPct,
+      catalogDropAlertTriggered: alertTriggered,
+      dropPctVsPreviousRun: reportedDropPct,
     };
 
     await uploadCrawlReport(

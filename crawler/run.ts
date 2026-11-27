@@ -1,6 +1,6 @@
 import { config } from "dotenv";
 import postgres from "postgres";
-import { VERIFIED_PILOT_BRANDS } from "./adapters";
+import { VERIFIED_CRAWL_BRANDS } from "./adapters";
 import { runBrandCrawl } from "./pipeline";
 
 config({ path: ".env.local" });
@@ -13,7 +13,7 @@ function parseArg(prefix: string): string | undefined {
 
 /**
  * Determines which brands are eligible for high-frequency crawling (strictly opt-in to conserve Actions budget):
- *  1. Brand explicitly has `high_frequency_mode = true`, OR
+ *  1. Brand explicitly has `high_frequency_mode = true` or `crawl_frequency = 'high_freq'`, OR
  *  2. An active `sale_events` window covers the brand (or is market-wide) with `triggers_high_frequency = true`, OR
  *  3. The brand has at least one product with an active user alert (`alerts.active = true`).
  */
@@ -23,7 +23,7 @@ async function resolveOptInHighFrequencyBrands(): Promise<string[]> {
 
   const sql = postgres(dbUrl, { max: 1 });
   try {
-    const pilotSet = new Set<string>(VERIFIED_PILOT_BRANDS);
+    const activeSet = new Set<string>(VERIFIED_CRAWL_BRANDS);
     const eligible = new Set<string>();
 
     const optInBrands = await sql`
@@ -33,7 +33,7 @@ async function resolveOptInHighFrequencyBrands(): Promise<string[]> {
         AND circuit_state != 'disabled'
     `;
     for (const r of optInBrands) {
-      if (pilotSet.has(r.slug)) eligible.add(r.slug);
+      if (activeSet.has(r.slug)) eligible.add(r.slug);
     }
 
     const activeSaleEvents = await sql`
@@ -44,9 +44,8 @@ async function resolveOptInHighFrequencyBrands(): Promise<string[]> {
     `;
     for (const ev of activeSaleEvents) {
       if (!ev.brand_slug) {
-        // Market-wide event (e.g. Black Friday / Memorial Day) activates all verified pilot brands
-        for (const slug of VERIFIED_PILOT_BRANDS) eligible.add(slug);
-      } else if (pilotSet.has(ev.brand_slug)) {
+        for (const slug of VERIFIED_CRAWL_BRANDS) eligible.add(slug);
+      } else if (activeSet.has(ev.brand_slug)) {
         eligible.add(ev.brand_slug);
       }
     }
@@ -58,7 +57,7 @@ async function resolveOptInHighFrequencyBrands(): Promise<string[]> {
       WHERE a.active = TRUE
     `;
     for (const r of alertBrands) {
-      if (pilotSet.has(r.brand_slug)) eligible.add(r.brand_slug);
+      if (activeSet.has(r.brand_slug)) eligible.add(r.brand_slug);
     }
 
     return Array.from(eligible);
@@ -72,6 +71,7 @@ async function main() {
   const modeArg = (parseArg("--mode=") ?? "manual") as "baseline" | "high-frequency" | "manual";
   const maxProductsArg = parseArg("--max=");
   const dryRun = process.argv.includes("--dry-run");
+  const forceFull = process.argv.includes("--force-full");
   const maxProducts = maxProductsArg ? Number(maxProductsArg) : undefined;
 
   let targetBrands: string[];
@@ -86,11 +86,11 @@ async function main() {
       return;
     }
   } else {
-    targetBrands = [...VERIFIED_PILOT_BRANDS];
+    targetBrands = [...VERIFIED_CRAWL_BRANDS];
   }
 
   console.log(
-    `[Tape & Tailor Crawler] mode=${modeArg} dryRun=${dryRun} cap=${maxProducts ?? "brand-config-default"} brands=${targetBrands.join(", ")}`
+    `[Tape & Tailor Crawler] mode=${modeArg} dryRun=${dryRun} forceFull=${forceFull} cap=${maxProducts ?? "brand-config-default"} brands=${targetBrands.join(", ")}`
   );
 
   const results = [];
@@ -100,12 +100,17 @@ async function main() {
       mode: modeArg,
       maxProducts,
       dryRun,
+      forceFull,
     });
     results.push(summary);
     const expectedStr =
       summary.expectedMinProducts !== null ? `/${summary.expectedMinProducts}+ exp` : "";
+    const discStr =
+      summary.discoveredCatalogCount !== null
+        ? ` discovered=${summary.discoveredCatalogCount} fetched=${summary.urlsFetched ?? 0}`
+        : "";
     console.log(
-      `  -> ${summary.brandSlug.padEnd(10)} status=${summary.status} method=${summary.methodUsed ?? "none"} seen=${summary.productsSeen}${expectedStr} new=${summary.newProducts} changes=${summary.priceChanges} classified=${summary.classifiedCount} out_of_scope=${summary.outOfScopeCount} unclassified=${summary.unclassifiedCount} quarantined=${summary.quarantinedCount} (${summary.durationMs}ms)`
+      `  -> ${summary.brandSlug.padEnd(15)} status=${summary.status} method=${summary.methodUsed ?? "none"}${discStr} parsed=${summary.productsSeen}${expectedStr} new=${summary.newProducts} changes=${summary.priceChanges} classified=${summary.classifiedCount} out_of_scope=${summary.outOfScopeCount} unclassified=${summary.unclassifiedCount} quarantined=${summary.quarantinedCount} (${summary.durationMs}ms)`
     );
   }
 

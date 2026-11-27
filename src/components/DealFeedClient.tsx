@@ -289,28 +289,43 @@ export function DealFeedClient({ initialData }: DealFeedClientProps) {
         </h3>
         <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
           {BRANDS.map((brand) => {
-            const count = data.facets.brandCounts[brand.slug] ?? 0;
+            const isFeedPending = brand.ingestionStatus === "feed_pending";
+            const count = isFeedPending ? 0 : (data.facets.brandCounts[brand.slug] ?? 0);
             const checked = selectedBrands.includes(brand.slug);
             return (
               <label
                 key={brand.slug}
-                className="flex items-center justify-between text-xs text-[#3E4C5E] hover:text-[#0F1D32] cursor-pointer py-0.5"
+                title={isFeedPending ? brand.statusNote : undefined}
+                className={`flex items-center justify-between text-xs py-0.5 ${
+                  isFeedPending
+                    ? "text-[#8A94A3] cursor-not-allowed"
+                    : "text-[#3E4C5E] hover:text-[#0F1D32] cursor-pointer"
+                }`}
               >
                 <span className="flex items-center gap-2 min-w-0">
                   <input
                     type="checkbox"
+                    disabled={isFeedPending}
                     checked={checked}
-                    onChange={() => toggleItem(selectedBrands, brand.slug, setSelectedBrands)}
-                    className="rounded border-[#C8BFB0] accent-[#0F1D32]"
+                    onChange={() => {
+                      if (!isFeedPending) toggleItem(selectedBrands, brand.slug, setSelectedBrands);
+                    }}
+                    className="rounded border-[#C8BFB0] accent-[#0F1D32] disabled:opacity-40"
                   />
                   <span className="font-mono text-[10px] font-semibold text-[#0F1D32] w-11 shrink-0">
                     {brand.code}
                   </span>
                   <span className="truncate">{brand.name}</span>
                 </span>
-                <span className="font-mono text-[10px] text-[#7A8490] tabular-nums">
-                  {count}
-                </span>
+                {isFeedPending ? (
+                  <span className="font-mono text-[9px] uppercase tracking-wider rounded bg-[#EFEAE0] px-1.5 py-0.5 text-[#7A6338] shrink-0">
+                    Feed pending
+                  </span>
+                ) : (
+                  <span className="font-mono text-[10px] text-[#7A8490] tabular-nums">
+                    {count}
+                  </span>
+                )}
               </label>
             );
           })}
