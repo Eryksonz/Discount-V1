@@ -1,7 +1,6 @@
 import { eq, desc, sql as drizzleSql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { Resend } from "resend";
 import { BRAND_BY_SLUG, validateAndBuildOutboundUrl } from "@config/brands";
 import { SANITY_CHECK_LIMITS } from "@config/deal-thresholds";
 import * as schema from "@/db/schema";
@@ -113,6 +112,7 @@ async function sendAdminDropAlert(params: {
   if (!apiKey || !to) return;
 
   try {
+    const { Resend } = await import("resend");
     const resend = new Resend(apiKey);
     await resend.emails.send({
       from,

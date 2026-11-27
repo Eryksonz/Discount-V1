@@ -316,7 +316,7 @@ export function DealCard({ item }: DealCardProps) {
             <a
               href={`/go/${item.id}`}
               target="_blank"
-              rel="sponsored noopener noreferrer"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-1 rounded bg-[#0F1D32] hover:bg-[#1B365D] px-3 py-1.5 text-xs font-semibold text-[#FAF8F3] transition-colors"
             >
               <span>Shop</span>
@@ -325,7 +325,7 @@ export function DealCard({ item }: DealCardProps) {
           </div>
         </div>
         <div className="text-[10px] text-[#7A8490] text-right">
-          Affiliate link · checkout on {item.brandName}&apos;s site
+          Direct link · checkout on {item.brandName}&apos;s site
         </div>
       </div>
     </article>

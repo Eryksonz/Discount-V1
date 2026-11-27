@@ -1,12 +1,23 @@
 import crypto from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
+import { getAlertsMode } from "@config/app";
 import { getDb } from "@/db";
 import * as schema from "@/db/schema";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: NextRequest) {
+  if (getAlertsMode() !== "email") {
+    return NextResponse.json(
+      {
+        error:
+          "Email alerts are disabled (ALERTS_MODE=local). Save target prices locally in your browser watchlist on /watchlist.",
+      },
+      { status: 503 }
+    );
+  }
+
   const db = getDb();
   if (!db) {
     return NextResponse.json(

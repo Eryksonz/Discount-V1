@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isClickLoggingEnabled } from "@config/app";
 import { validateAndBuildOutboundUrl } from "@config/brands";
 import { findProductForRedirect, recordOutboundClick } from "@/lib/catalog/repository";
 
@@ -43,14 +44,14 @@ export async function GET(
     );
   }
 
-  // Record click for affiliate reporting when backed by Postgres
-  if (product.inDatabase) {
+  // Optional anonymous aggregate click counter (default on via OUTBOUND_CLICK_LOGGING; no personal data or referer stored)
+  if (product.inDatabase && isClickLoggingEnabled()) {
     await recordOutboundClick({
       productId: product.id,
       brandSlug: product.brandSlug,
       targetHost: validated.targetHost,
-      isAffiliate: validated.isAffiliate,
-      referer: request.headers.get("referer"),
+      isAffiliate: false,
+      referer: null,
     });
   }
 

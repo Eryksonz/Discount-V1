@@ -3,21 +3,32 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ArrowUpRight, Bell, Bookmark, CheckCircle2, Clock, Tag } from "lucide-react";
+import type { AlertsMode } from "@config/app";
 import { DEAL_THRESHOLDS } from "@config/deal-thresholds";
 import type { ProductFeedItem } from "@/lib/catalog/repository";
 import { computeEstimatedPriceAfterPromo, formatPromoLine } from "@/lib/promos";
 import { formatCurrency, formatRelativeTime, formatSignedPct } from "@/lib/utils";
-import { useWatchlist } from "@/lib/watchlist";
+import { evaluateLocalPriceTarget, useWatchlist } from "@/lib/watchlist";
 import { GarmentEditorialVisual } from "./GarmentEditorialVisual";
 import { PriceHistoryChart } from "./PriceHistoryChart";
 
 interface ProductDetailClientProps {
   product: ProductFeedItem;
+  alertsMode?: AlertsMode;
 }
 
-export function ProductDetailClient({ product }: ProductDetailClientProps) {
-  const { isSaved, toggle } = useWatchlist();
+export function ProductDetailClient({
+  product,
+  alertsMode = "local",
+}: ProductDetailClientProps) {
+  const { isSaved, toggle, getTargetPrice, setTargetPrice: saveLocalTargetPrice } = useWatchlist();
   const saved = isSaved(product.id);
+  const savedTargetCents = getTargetPrice(product.id);
+  const localTargetMet = evaluateLocalPriceTarget(
+    product.currentPriceCents,
+    product.inStock,
+    savedTargetCents
+  ).met;
 
   // Alert form state
   const [email, setEmail] = useState("");
@@ -223,12 +234,12 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
             </p>
           )}
 
-          {/* Outbound Retailer Button + Affiliate Disclosure */}
+          {/* Outbound Retailer Button (Direct, Non-Affiliate) */}
           <div className="flex flex-wrap items-center gap-4 pt-2">
             <a
               href={`/go/${product.id}`}
               target="_blank"
-              rel="sponsored noopener noreferrer"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-2 rounded-md bg-[#0F1D32] hover:bg-[#1B365D] px-5 py-3 text-sm font-semibold text-[#FAF8F3] transition-colors"
             >
               <span>Buy on {product.brandName}</span>
@@ -243,8 +254,8 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
                 </span>
               </div>
               <div className="text-[11px] text-[#6B7684]">
-                Affiliate link — checkout happens on {product.brandName}&apos;s site; prices can
-                change at any time.
+                Direct link (no affiliate tracking) — checkout happens on {product.brandName}&apos;s
+                site; prices can change at any time.
               </div>
             </div>
           </div>
@@ -358,82 +369,178 @@ export function ProductDetailClient({ product }: ProductDetailClientProps) {
           )}
         </section>
 
-        {/* Price-Drop Email Alert Form */}
+        {/* Price-Drop Target Section (Local Watchlist by default; Email when ALERTS_MODE=email) */}
         <section className="rounded-lg border border-[#D8D0C0] bg-white p-5 space-y-3">
           <div className="flex items-center gap-2">
             <Bell className="w-4 h-4 text-[#B8924A]" />
             <h2 className="font-mono text-xs font-bold uppercase tracking-widest text-[#0F1D32]">
-              Set a Price-Drop Alert
+              {alertsMode === "email" ? "Set a Price-Drop Alert" : "Set a Local Watchlist Target"}
             </h2>
           </div>
-          <p className="text-xs text-[#5C6776]">
-            We check active alerts after each crawl and email you at most once per price level.
-            Every email includes a CAN-SPAM one-click unsubscribe link.
-          </p>
 
-          <form onSubmit={handleAlertSubmit} className="space-y-3">
-            <div>
-              <label className="block font-mono text-[10px] uppercase tracking-wider text-[#5C6776] mb-1">
-                Email Address
-              </label>
-              <input
-                type="email"
-                required
-                placeholder="you@university.edu"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full rounded border border-[#D8D0C0] px-3 py-2 text-sm text-[#0F1D32] focus:border-[#0F1D32] focus:outline-none"
-              />
-            </div>
+          {alertsMode === "local" ? (
+            <>
+              <p className="text-xs text-[#5C6776]">
+                Saved strictly in your browser&apos;s local storage (no email or account required).
+                When the latest tracked price meets or beats your target, a{" "}
+                <strong className="text-[#14532D]">Price Dropped</strong> badge and banner appear on{" "}
+                <Link href="/watchlist" className="font-semibold text-[#0F1D32] underline">
+                  /watchlist
+                </Link>
+                .
+              </p>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block font-mono text-[10px] uppercase tracking-wider text-[#5C6776] mb-1">
-                  Target Price ($)
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  step="1"
-                  value={targetPrice}
-                  onChange={(e) => setTargetPrice(e.target.value)}
-                  className="w-full rounded border border-[#D8D0C0] px-3 py-2 font-mono text-sm text-[#0F1D32]"
-                />
-              </div>
-              <div>
-                <label className="block font-mono text-[10px] uppercase tracking-wider text-[#5C6776] mb-1">
-                  Or % Below 90d Med.
-                </label>
-                <input
-                  type="number"
-                  min={5}
-                  max={90}
-                  placeholder="e.g. 25"
-                  value={targetDiscount}
-                  onChange={(e) => setTargetDiscount(e.target.value)}
-                  className="w-full rounded border border-[#D8D0C0] px-3 py-2 font-mono text-sm text-[#0F1D32]"
-                />
-              </div>
-            </div>
+              {localTargetMet && savedTargetCents !== null && (
+                <div className="flex items-center gap-2 rounded bg-[#E8F3EC] border border-[#14532D]/30 p-2.5 text-xs font-semibold text-[#14532D]">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>
+                    Price dropped! Current price ({formatCurrency(product.currentPriceCents, product.currency)}) meets your{" "}
+                    {formatCurrency(savedTargetCents, product.currency)} target.
+                  </span>
+                </div>
+              )}
 
-            <button
-              type="submit"
-              disabled={alertStatus.kind === "saving"}
-              className="w-full rounded bg-[#14532D] hover:bg-[#0F4C29] py-2.5 text-xs font-semibold text-white transition-colors disabled:opacity-50"
-            >
-              {alertStatus.kind === "saving" ? "Saving Alert..." : "Notify Me on Price Drop"}
-            </button>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const num = Number(targetPrice);
+                  if (!Number.isFinite(num) || num <= 0) {
+                    setAlertStatus({ kind: "error", text: "Enter a valid target price in dollars." });
+                    return;
+                  }
+                  saveLocalTargetPrice(product.id, Math.round(num * 100));
+                  setAlertStatus({
+                    kind: "ok",
+                    text: `Saved $${Math.round(num)} target locally in your browser watchlist.`,
+                  });
+                }}
+                className="space-y-3"
+              >
+                <div>
+                  <label className="block font-mono text-[10px] uppercase tracking-wider text-[#5C6776] mb-1">
+                    Target Price ($)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    step="1"
+                    value={targetPrice}
+                    onChange={(e) => setTargetPrice(e.target.value)}
+                    className="w-full rounded border border-[#D8D0C0] px-3 py-2 font-mono text-sm text-[#0F1D32]"
+                  />
+                </div>
 
-            {alertStatus.kind === "ok" && (
-              <div className="flex items-start gap-2 rounded bg-[#E8F3EC] p-2.5 text-xs text-[#14532D]">
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{alertStatus.text}</span>
-              </div>
-            )}
-            {alertStatus.kind === "error" && (
-              <p className="text-xs text-[#8C3426] font-medium">{alertStatus.text}</p>
-            )}
-          </form>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="submit"
+                    className="flex-1 rounded bg-[#14532D] hover:bg-[#0F4C29] py-2.5 text-xs font-semibold text-white transition-colors"
+                  >
+                    {savedTargetCents !== null
+                      ? `Update Local Target (Currently ${formatCurrency(savedTargetCents, product.currency)})`
+                      : "Save Target to Browser Watchlist"}
+                  </button>
+                  {savedTargetCents !== null && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        saveLocalTargetPrice(product.id, null);
+                        setAlertStatus({ kind: "ok", text: "Cleared local target price." });
+                      }}
+                      className="rounded border border-[#D8D0C0] px-3 py-2.5 font-mono text-xs text-[#5C6776] hover:text-[#8C3426]"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {alertStatus.kind === "ok" && (
+                  <div className="flex items-start gap-2 rounded bg-[#E8F3EC] p-2.5 text-xs text-[#14532D]">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>
+                      {alertStatus.text}{" "}
+                      <Link href="/watchlist" className="underline font-semibold">
+                        Open Watchlist →
+                      </Link>
+                    </span>
+                  </div>
+                )}
+                {alertStatus.kind === "error" && (
+                  <p className="text-xs text-[#8C3426] font-medium">{alertStatus.text}</p>
+                )}
+              </form>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-[#5C6776]">
+                We check active alerts after each crawl and email you at most once per price level.
+                Every email includes a CAN-SPAM one-click unsubscribe link.
+              </p>
+
+              <form onSubmit={handleAlertSubmit} className="space-y-3">
+                <div>
+                  <label className="block font-mono text-[10px] uppercase tracking-wider text-[#5C6776] mb-1">
+                    Email Address
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="you@university.edu"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full rounded border border-[#D8D0C0] px-3 py-2 text-sm text-[#0F1D32] focus:border-[#0F1D32] focus:outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-mono text-[10px] uppercase tracking-wider text-[#5C6776] mb-1">
+                      Target Price ($)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      step="1"
+                      value={targetPrice}
+                      onChange={(e) => setTargetPrice(e.target.value)}
+                      className="w-full rounded border border-[#D8D0C0] px-3 py-2 font-mono text-sm text-[#0F1D32]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-mono text-[10px] uppercase tracking-wider text-[#5C6776] mb-1">
+                      Or % Below 90d Med.
+                    </label>
+                    <input
+                      type="number"
+                      min={5}
+                      max={90}
+                      placeholder="e.g. 25"
+                      value={targetDiscount}
+                      onChange={(e) => setTargetDiscount(e.target.value)}
+                      className="w-full rounded border border-[#D8D0C0] px-3 py-2 font-mono text-sm text-[#0F1D32]"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={alertStatus.kind === "saving"}
+                  className="w-full rounded bg-[#14532D] hover:bg-[#0F4C29] py-2.5 text-xs font-semibold text-white transition-colors disabled:opacity-50"
+                >
+                  {alertStatus.kind === "saving" ? "Saving Alert..." : "Notify Me on Price Drop"}
+                </button>
+
+                {alertStatus.kind === "ok" && (
+                  <div className="flex items-start gap-2 rounded bg-[#E8F3EC] p-2.5 text-xs text-[#14532D]">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{alertStatus.text}</span>
+                  </div>
+                )}
+                {alertStatus.kind === "error" && (
+                  <p className="text-xs text-[#8C3426] font-medium">{alertStatus.text}</p>
+                )}
+              </form>
+            </>
+          )}
         </section>
       </div>
 

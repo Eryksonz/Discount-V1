@@ -81,8 +81,9 @@ jobs:
           MODE="${{ github.event.inputs.mode || 'baseline' }}"
           npx tsx crawler/run.ts $BRAND_ARG --mode=$MODE $OFFSET_ARG $MAX_ARG $FORCE_ARG
 
-      - name: Evaluate deduplicated price-drop alerts
+      - name: Evaluate price-drop alerts (no-op when ALERTS_MODE=local)
         env:
+          ALERTS_MODE: ${{ vars.ALERTS_MODE || 'local' }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_FROM_EMAIL: ${{ secrets.ALERT_FROM_EMAIL }}

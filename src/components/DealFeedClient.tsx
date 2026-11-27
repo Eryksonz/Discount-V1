@@ -711,6 +711,34 @@ export function DealFeedClient({ initialData }: DealFeedClientProps) {
                 </div>
               </div>
             </section>
+
+            {/* Brands Not Tracked Yet (Peter Millar + plain direct link, no prices) */}
+            <section className="mt-6 rounded-lg border border-[#E2DCD0] bg-white p-5 space-y-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="font-serif text-lg font-semibold text-[#0F1D32]">
+                  Brands Not Tracked Yet
+                </h2>
+                <a
+                  href="/about"
+                  className="font-mono text-[11px] text-[#1B365D] hover:underline"
+                >
+                  View full list on /about →
+                </a>
+              </div>
+              <p className="text-xs text-[#4B5869] leading-relaxed">
+                <strong>Peter Millar</strong> is currently excluded from our price feed because
+                automated requests are blocked on its site; we never display unverified prices.{" "}
+                <a
+                  href="https://www.petermillar.com"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-[#0F1D32] underline hover:text-[#1B365D]"
+                >
+                  Visit www.petermillar.com directly
+                </a>{" "}
+                (plain link, no affiliate tracking).
+              </p>
+            </section>
           </div>
         </div>
       </main>

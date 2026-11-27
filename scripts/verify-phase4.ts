@@ -122,6 +122,29 @@ async function main() {
         },
       },
       {
+        path: "/about",
+        check: (t, s) => {
+          if (
+            s !== 200 ||
+            !t.includes("This site has no affiliate links and earns no revenue") ||
+            !t.includes("Brands Not Tracked Yet") ||
+            !t.includes("Peter Millar")
+          ) {
+            throw new Error(`/about missing non-commercial notice or Peter Millar untracked section (${s})`);
+          }
+          console.log("  /about: non-commercial notice + Brands Not Tracked Yet (Peter Millar) (PASS)");
+        },
+      },
+      {
+        path: "/watchlist",
+        check: (t, s) => {
+          if (s !== 200 || !t.includes("Saved Watchlist")) {
+            throw new Error(`/watchlist failed (${s})`);
+          }
+          console.log("  /watchlist: local target watchlist rendered (PASS)");
+        },
+      },
+      {
         path: "/api/products?brands=peter-millar",
         check: (t, s) => {
           if (s !== 200) throw new Error(`/api/products?brands=peter-millar failed (${s})`);
@@ -137,6 +160,17 @@ async function main() {
       const text = await resp.text();
       c.check(text, resp.status);
     }
+
+    // Confirm POST /api/alerts returns 503 when ALERTS_MODE=local (default)
+    const alertResp = await fetch(`${base}/api/alerts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "test@example.com", productId: "x", targetPriceDollars: 50 }),
+    });
+    if (alertResp.status !== 503) {
+      throw new Error(`Expected POST /api/alerts to return 503 in local mode, got ${alertResp.status}`);
+    }
+    console.log("  POST /api/alerts (ALERTS_MODE=local): HTTP 503 disabled (PASS)");
 
     console.log("ALL HARDENING, HONEST LABELING, KIT ENGINE & STATUS CHECKS PASSED!");
   } finally {

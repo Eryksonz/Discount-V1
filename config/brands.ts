@@ -84,7 +84,7 @@ export const BRANDS: readonly BrandConfig[] = [
     swatchHex: "#1B365D",
     ingestionStatus: "feed_pending",
     statusNote:
-      "Feed pending: awaiting Rakuten Advertising product catalog feed access. Direct crawling is disabled.",
+      "Not tracked yet — direct automated requests are blocked by the brand's site. Visit the brand's site directly.",
     affiliate: { network: "rakuten", active: false },
     crawler: {
       preferredMethods: ["rakuten-feed"],
@@ -437,7 +437,7 @@ export type OutboundValidationResult =
 
 /**
  * Strictly validates a stored product URL against the brand's allowlisted hosts
- * before wrapping it with an affiliate template (if active). Prevents open-redirect abuse.
+ * and returns the direct brand product URL (no affiliate wrapping). Prevents open-redirect abuse.
  */
 export function validateAndBuildOutboundUrl(
   brandSlug: string,
@@ -468,27 +468,6 @@ export function validateAndBuildOutboundUrl(
     };
   }
 
-  if (brand.affiliate.active && brand.affiliate.urlTemplate) {
-    const wrapped = brand.affiliate.urlTemplate.replace(
-      "{url}",
-      encodeURIComponent(parsed.toString())
-    );
-    try {
-      const affiliateParsed = new URL(wrapped);
-      const affHost = affiliateParsed.hostname.toLowerCase();
-      const affAllowed =
-        affiliateParsed.protocol === "https:" &&
-        (ALLOWED_AFFILIATE_HOSTS.has(affHost) ||
-          affHost.endsWith(".sjv.io") ||
-          affHost.endsWith(".pxf.io"));
-      if (!affAllowed) {
-        return { ok: false, reason: `Disallowed affiliate host: ${affHost}` };
-      }
-      return { ok: true, url: affiliateParsed.toString(), targetHost: host, isAffiliate: true };
-    } catch {
-      return { ok: false, reason: "Malformed affiliate URL template" };
-    }
-  }
-
+  // Non-commercial direct redirect: never wrap with affiliate links
   return { ok: true, url: parsed.toString(), targetHost: host, isAffiliate: false };
 }

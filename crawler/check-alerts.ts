@@ -2,7 +2,7 @@ import { config } from "dotenv";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { Resend } from "resend";
+import { getAlertsMode } from "@config/app";
 import { DEAL_THRESHOLDS } from "@config/deal-thresholds";
 import * as schema from "@/db/schema";
 
@@ -84,6 +84,13 @@ export async function runAlertCheck(): Promise<{
   triggered: number;
   sent: number;
 }> {
+  if (getAlertsMode() !== "email") {
+    console.log(
+      "[Tape & Tailor Alerts] ALERTS_MODE=local: skipping server-side email alert evaluation (no Resend dependency)."
+    );
+    return { evaluated: 0, triggered: 0, sent: 0 };
+  }
+
   const dbUrl = process.env.DATABASE_URL;
   if (!dbUrl) throw new Error("DATABASE_URL is required to run alert checks.");
 
@@ -92,7 +99,7 @@ export async function runAlertCheck(): Promise<{
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/+$/, "");
   const resendKey = process.env.RESEND_API_KEY;
   const fromEmail = process.env.ALERT_FROM_EMAIL ?? "alerts@tapeandtailor.example.com";
-  const resend = resendKey ? new Resend(resendKey) : null;
+  const resend = resendKey ? new (await import("resend")).Resend(resendKey) : null;
 
   try {
     const rows = await db
@@ -157,7 +164,7 @@ export async function runAlertCheck(): Promise<{
               "",
               `View price history & retailer link: ${detailUrl}`,
               "",
-              "Prices are verified periodically and can change at checkout on the brand's site. Tape & Tailor may earn affiliate commissions on outbound links and is not affiliated with or endorsed by listed brands.",
+              "Prices are verified periodically and can change at checkout on the brand's site. Tape & Tailor has no affiliate links, earns no revenue, and is not affiliated with or endorsed by listed brands.",
               "",
               `One-click unsubscribe: ${unsubscribeUrl}`,
             ].join("\n"),

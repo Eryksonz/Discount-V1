@@ -10,31 +10,31 @@ export function SiteFooter() {
               Tape &amp; Tailor
             </div>
             <p className="text-xs leading-relaxed text-[#9AA8BA]">
-              An independent, deterministic menswear price tracker covering 16 curated
-              brands. Zero paid placements. Zero AI-generated recommendations. Every
-              signal and note is computed directly from stored price snapshots.
+              A free, independent, deterministic menswear price tracker. Zero paid placements.
+              Zero AI-generated recommendations. Every signal and note is computed directly from
+              stored price snapshots.
             </p>
             <p className="text-xs font-semibold text-[#E5C98B] pt-1">
-              Tape &amp; Tailor is not affiliated with, sponsored by, or endorsed by any
-              of the brands listed.
+              Tape &amp; Tailor is not affiliated with, sponsored by, or endorsed by any of the
+              brands listed.
             </p>
           </div>
 
           <div className="space-y-2">
             <div className="font-mono text-[11px] uppercase tracking-widest text-[#E5C98B]">
-              Affiliate &amp; Pricing Disclosure
+              Non-Commercial &amp; Pricing Notice
             </div>
             <p className="text-xs leading-relaxed text-[#9AA8BA]">
-              Tape &amp; Tailor does not sell clothing. Outbound retailer links may earn a
-              standard affiliate commission at no extra cost to you. Commissions never
-              influence rankings, deal scores, or verified deal badges. Prices and stock
-              are checked periodically and can change at checkout on the brand&apos;s site.
+              This site has no affiliate links and earns no revenue. Tape &amp; Tailor does not
+              sell clothing—every outbound button links directly to the brand&apos;s own product
+              page. Prices and stock are checked periodically and can change at checkout on the
+              brand&apos;s site.
             </p>
           </div>
 
           <div className="space-y-2">
             <div className="font-mono text-[11px] uppercase tracking-widest text-[#E5C98B]">
-              Compliance &amp; Methodology
+              Explore &amp; Policies
             </div>
             <ul className="space-y-1.5 text-xs">
               <li>
@@ -49,7 +49,7 @@ export function SiteFooter() {
               </li>
               <li>
                 <Link href="/students" className="hover:text-white transition-colors">
-                  Student Discounts (.edu / SheerID / UNiDAYS)
+                  Student Discounts Directory
                 </Link>
               </li>
               <li>
@@ -59,7 +59,7 @@ export function SiteFooter() {
               </li>
               <li>
                 <Link href="/privacy" className="hover:text-white transition-colors">
-                  Privacy Policy &amp; Email Unsubscribe
+                  Privacy Policy
                 </Link>
               </li>
               <li>
@@ -75,7 +75,7 @@ export function SiteFooter() {
           <span>
             &copy; {new Date().getFullYear()} Tape &amp; Tailor. Brand codes are internal identifiers, not stock quotes. All trademarks belong to their respective owners.
           </span>
-          <span>Checkout always happens directly on the brand&apos;s website.</span>
+          <span>This site has no affiliate links and earns no revenue.</span>
         </div>
       </div>
     </footer>
